@@ -1,0 +1,8 @@
+node_modules
+dist
+.DS_Store
+.env
+
+# Ignore rendered output, except the published tutorial.
+out/*
+!out/sound-carvers-tutorial.mp4

@@ -1,0 +1,161 @@
+/*
+ * Design tokens. Primitives are never used in components; components only use the semantic tier.
+ * Warm neutrals (hue 60) carry the "wood and amps" feel; amber is the single accent and means "interactive".
+ * Stage hues (blue → yellow → green) each pair with a pie icon, so meaning never rests on color alone.
+ */
+
+:root {
+  --font-ui: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+
+  /* Type scale, named by use */
+  --fs-caption: 0.75rem; /* 12 */
+  --fs-small: 0.8125rem; /* 13 */
+  --fs-body: 0.9375rem; /* 15 */
+  --fs-lead: 1.0625rem; /* 17 */
+  --fs-title-sm: 1.25rem; /* 20 */
+  --fs-title-md: 1.625rem; /* 26 */
+  --fs-title-lg: 2.125rem; /* 34 */
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Concentric pairs: column 18 = card 10 + padding 8; dialog 20 = field 10 + inset 10 */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 20px;
+  --radius-full: 999px;
+
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 150ms;
+  --dur-med: 200ms;
+
+  --control-h: 40px;
+  --topbar-h: 60px;
+  --bottombar-h: 64px;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --control-h: 44px;
+  }
+}
+
+/* ---------- dark (default) ---------- */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: oklch(0.165 0.008 60);
+  --bg-sunken: oklch(0.195 0.009 60);
+  --surface: oklch(0.24 0.01 60);
+  --surface-2: oklch(0.275 0.011 60);
+  --surface-3: oklch(0.315 0.012 60);
+  --surface-overlay: oklch(0.215 0.01 60);
+  --border: oklch(0.335 0.012 60);
+  --border-strong: oklch(0.44 0.014 60);
+
+  --text: oklch(0.955 0.008 75);
+  --text-secondary: oklch(0.79 0.012 70);
+  --text-tertiary: oklch(0.69 0.012 70);
+  --text-on-color: oklch(0.2 0.02 60);
+
+  --accent-solid: oklch(0.77 0.155 62);
+  --accent-solid-hover: oklch(0.82 0.14 66);
+  --accent-on-solid: oklch(0.21 0.045 55);
+  --accent-text: oklch(0.81 0.13 66);
+  --accent-subtle: oklch(0.3 0.06 60);
+
+  --danger-text: oklch(0.73 0.16 25);
+  --danger-solid: oklch(0.55 0.19 25);
+  --danger-solid-hover: oklch(0.52 0.19 25);
+  --danger-on-solid: oklch(0.99 0 0);
+  --danger-subtle: oklch(0.29 0.07 25);
+
+  --stage-todo: oklch(0.72 0.012 70);
+  --stage-learning: oklch(0.75 0.12 255);
+  --stage-shaky: oklch(0.85 0.14 95);
+  --stage-ready: oklch(0.77 0.15 150);
+  --stage-todo-subtle: oklch(0.27 0.008 70);
+  --stage-learning-subtle: oklch(0.28 0.05 255);
+  --stage-shaky-subtle: oklch(0.29 0.05 95);
+  --stage-ready-subtle: oklch(0.28 0.05 150);
+  --stage-check: var(--bg-sunken);
+
+  --level-1: oklch(0.72 0.16 25);
+  --level-2: var(--stage-shaky);
+  --level-3: var(--stage-ready);
+
+  --focus-ring: oklch(0.82 0.14 66);
+  --backdrop: oklch(0.08 0.005 60 / 0.6);
+  --shadow-card: 0 0 0 1px oklch(1 0 0 / 0.055), 0 1px 2px oklch(0 0 0 / 0.35);
+  --shadow-lifted: 0 0 0 1px oklch(1 0 0 / 0.08), 0 12px 32px -8px oklch(0 0 0 / 0.6), 0 4px 10px oklch(0 0 0 / 0.35);
+  --shadow-overlay: 0 0 0 1px oklch(1 0 0 / 0.07), 0 24px 64px -12px oklch(0 0 0 / 0.7);
+  --topbar-bg: oklch(0.165 0.008 60 / 0.82);
+  --tint-strength: 30%;
+  --image-outline: oklch(1 0 0 / 0.1);
+}
+
+/* ---------- light ---------- */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: oklch(0.977 0.005 75);
+  --bg-sunken: oklch(0.948 0.007 70);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.962 0.006 70);
+  --surface-3: oklch(0.925 0.008 70);
+  --surface-overlay: oklch(1 0 0);
+  --border: oklch(0.895 0.008 70);
+  --border-strong: oklch(0.78 0.01 70);
+
+  --text: oklch(0.22 0.012 60);
+  --text-secondary: oklch(0.42 0.014 60);
+  --text-tertiary: oklch(0.5 0.014 60);
+  --text-on-color: oklch(0.2 0.02 60);
+
+  --accent-solid: oklch(0.55 0.15 48);
+  --accent-solid-hover: oklch(0.5 0.145 46);
+  --accent-on-solid: oklch(0.995 0 0);
+  --accent-text: oklch(0.5 0.14 48);
+  --accent-subtle: oklch(0.95 0.035 70);
+
+  --danger-text: oklch(0.52 0.19 25);
+  --danger-solid: oklch(0.55 0.2 25);
+  --danger-solid-hover: oklch(0.5 0.19 25);
+  --danger-on-solid: oklch(0.995 0 0);
+  --danger-subtle: oklch(0.95 0.03 25);
+
+  --stage-todo: oklch(0.5 0.012 60);
+  --stage-learning: oklch(0.52 0.15 258);
+  --stage-shaky: oklch(0.52 0.11 85);
+  --stage-ready: oklch(0.5 0.13 150);
+  --stage-todo-subtle: oklch(0.93 0.006 70);
+  --stage-learning-subtle: oklch(0.94 0.03 255);
+  --stage-shaky-subtle: oklch(0.95 0.045 95);
+  --stage-ready-subtle: oklch(0.94 0.04 150);
+  --stage-check: oklch(1 0 0);
+
+  --level-1: oklch(0.55 0.19 25);
+  /* Glyph fills, lighter than the text tokens so the dark glyph on top keeps its contrast */
+  --level-2: oklch(0.56 0.115 85);
+  --level-3: oklch(0.52 0.13 150);
+
+  --focus-ring: oklch(0.55 0.15 48);
+  --backdrop: oklch(0.2 0.01 60 / 0.4);
+  --shadow-card: 0 0 0 1px oklch(0 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.06);
+  --shadow-lifted: 0 0 0 1px oklch(0 0 0 / 0.08), 0 12px 28px -8px oklch(0 0 0 / 0.22), 0 4px 10px oklch(0 0 0 / 0.08);
+  --shadow-overlay: 0 0 0 1px oklch(0 0 0 / 0.06), 0 24px 64px -12px oklch(0 0 0 / 0.3);
+  --topbar-bg: oklch(0.977 0.005 75 / 0.85);
+  --tint-strength: 18%;
+  --image-outline: oklch(0 0 0 / 0.1);
+}
