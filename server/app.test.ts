@@ -1,16 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from './app.ts';
 import { openDb } from './db.ts';
 import { bestMatch, createMusic, tuningName } from './music.ts';
+import { createFiles } from './files.ts';
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'setlist-'));
   const db = openDb(dir);
-  const app = createApp(db, { bandPassword: 'correct horse', secureCookies: false, bandName: 'Test', music: createMusic(join(dir, 'covers')), enrichOnAdd: false });
+  const app = createApp(db, { bandPassword: 'correct horse', secureCookies: false, bandName: 'Test', music: createMusic(join(dir, 'covers')), files: createFiles(join(dir, 'files')), enrichOnAdd: false });
   let cookie = '';
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await app.request(path, {
@@ -24,7 +25,11 @@ function setup() {
     const data: any = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
     return { status: res.status, body: data };
   };
-  return { call, cleanup: () => { db.close(); rmSync(dir, { recursive: true }); } };
+  /** Raw upload, the way the browser sends it: the file's own type, same-origin. */
+  const upload = (path: string, bytes: Uint8Array, type: string, headers: Record<string, string> = {}) =>
+    app.request(path, { method: 'POST', headers: { 'content-type': type, host: 'localhost', origin: 'http://localhost', cookie, ...headers }, body: bytes });
+  const raw = (path: string, headers: Record<string, string> = {}) => app.request(path, { headers: { host: 'localhost', cookie, ...headers } });
+  return { call, upload, raw, dir, cleanup: () => { db.close(); rmSync(dir, { recursive: true }); } };
 }
 
 test('rejects everything without the band password', async () => {
@@ -115,6 +120,82 @@ test('only accepts artwork from known music CDNs', async () => {
   assert.equal((await call('POST', '/api/songs', { title: 'X', coverUrl: 'https://evil.example/a.jpg' })).status, 400);
   assert.equal((await call('GET', '/api/art?u=https%3A%2F%2Fevil.example%2Fa.jpg')).status, 400);
   assert.equal((await call('GET', '/api/covers/..%2Fsetlist.db')).status, 404);
+  cleanup();
+});
+
+test('lyrics, chords and tabs: save, list, clear', async () => {
+  const { call, cleanup } = setup();
+  await call('POST', '/api/login', { password: 'correct horse' });
+  const song = (await call('POST', '/api/songs', { title: 'Song A' })).body.id;
+  const lyrics = '[Verso]\nLife is a wheel\n\n[Refrão]\nEverything and everyone';
+  assert.equal((await call('PUT', `/api/songs/${song}/texts/lyrics`, { body: lyrics })).status, 200);
+  assert.equal((await call('PUT', `/api/songs/${song}/texts/chords`, { body: 'B  D#m  E' })).status, 200);
+  assert.equal((await call('PUT', `/api/songs/${song}/texts/sheet`, { body: 'x' })).status, 404);
+  assert.deepEqual((await call('GET', `/api/songs/${song}/texts`)).body, { lyrics, chords: 'B  D#m  E', tab: '' });
+
+  let state = (await call('GET', '/api/state')).body;
+  assert.deepEqual(Object.keys(state.songs[0].texts).sort(), ['chords', 'lyrics']);
+  assert.equal(state.activity.filter((a: { kind: string }) => a.kind === 'song.text').length, 2);
+
+  // Saving again doesn't log again; clearing removes the sheet.
+  await call('PUT', `/api/songs/${song}/texts/lyrics`, { body: `${lyrics}\nMore` });
+  await call('PUT', `/api/songs/${song}/texts/chords`, { body: '  ' });
+  state = (await call('GET', '/api/state')).body;
+  assert.deepEqual(Object.keys(state.songs[0].texts), ['lyrics']);
+  assert.equal(state.activity.filter((a: { kind: string }) => a.kind === 'song.text').length, 2);
+  assert.equal((await call('PUT', `/api/songs/${song}/texts/tab`, { body: 'e|'.repeat(60_000) })).status, 400);
+  cleanup();
+});
+
+test('audio and image uploads: type and origin checks, ranges, rename, delete', async () => {
+  const { call, upload, raw, dir, cleanup } = setup();
+  await call('POST', '/api/login', { password: 'correct horse' });
+  const song = (await call('POST', '/api/songs', { title: 'Song A' })).body.id;
+  const bytes = new Uint8Array(1000).map((_, i) => i % 256);
+
+  assert.equal((await upload(`/api/songs/${song}/files?name=x`, bytes, 'image/svg+xml')).status, 415);
+  assert.equal((await upload(`/api/songs/${song}/files?name=x`, bytes, 'text/html')).status, 415);
+  assert.equal((await upload(`/api/songs/${song}/files`, bytes, 'audio/mpeg', { origin: 'https://evil.example' })).status, 403);
+  assert.equal((await upload(`/api/songs/${song}/files`, new Uint8Array(0), 'audio/mpeg')).status, 400);
+  assert.equal((await upload(`/api/songs/${song}/files`, new Uint8Array(16_000_000), 'image/png')).status, 413);
+  assert.deepEqual(readdirSync(join(dir, 'files')), [], 'refused uploads leave nothing on disk');
+
+  const res = await upload(`/api/songs/${song}/files?name=${encodeURIComponent('Ensaio 21/10')}`, bytes, 'audio/mpeg');
+  assert.equal(res.status, 201);
+  const { id } = (await res.json()) as { id: string };
+  await upload(`/api/songs/${song}/files?name=chart`, bytes, 'image/jpeg');
+
+  const state = (await call('GET', '/api/state')).body;
+  assert.deepEqual(
+    state.files.map((f: { kind: string; name: string; size: number }) => [f.kind, f.name, f.size]),
+    [['audio', 'Ensaio 21/10', 1000], ['image', 'chart', 1000]],
+  );
+  assert.equal(state.files[0].url, `/api/files/${id}`);
+
+  const whole = await raw(`/api/files/${id}`);
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+  assert.equal((await whole.arrayBuffer()).byteLength, 1000);
+  const part = await raw(`/api/files/${id}`, { range: 'bytes=10-19' });
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get('content-range'), 'bytes 10-19/1000');
+  assert.deepEqual([...new Uint8Array(await part.arrayBuffer())], [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+  assert.equal((await raw(`/api/files/${id}`, { range: 'bytes=-5' })).headers.get('content-range'), 'bytes 995-999/1000');
+  assert.equal((await raw(`/api/files/${id}`, { range: 'bytes=5000-' })).status, 416);
+  assert.match((await raw(`/api/files/${id}?download`)).headers.get('content-disposition') ?? '', /^attachment; filename\*=UTF-8''Ensaio%2021%2F10\.mp3$/);
+
+  assert.equal((await call('PATCH', `/api/files/${id}`, { name: 'Take 2' })).status, 200);
+  assert.equal((await call('GET', '/api/state')).body.files[0].name, 'Take 2');
+  assert.equal((await call('DELETE', `/api/files/${id}`, {})).status, 200);
+  assert.equal((await raw(`/api/files/${id}`)).status, 404);
+  assert.equal(readdirSync(join(dir, 'files')).length, 1);
+
+  // Deleting the song takes its files along.
+  await call('DELETE', `/api/songs/${song}`, {});
+  assert.deepEqual(readdirSync(join(dir, 'files')), []);
+  assert.equal((await call('GET', '/api/state')).body.files.length, 0);
+  assert.ok(existsSync(join(dir, 'files')));
   cleanup();
 });
 

@@ -13,6 +13,7 @@ Live at **https://soundcarvers.viniciusbregoli.dev** (shared band password, then
 - **Quem faz o quê.** Each member's part on each song ("Guitarra solo", "Voz e piano"), hinted with their usual instrument and shown in Stage mode.
 - **Per-member confidence.** The column is the band's verdict; each member also rates their own part (*Lost / Shaky / Solid*). Cards show everyone's rating, and "Only songs I'm not solid on" filters the board to your homework. When every member rates a song *Solid* (*Domino*), it moves to the top of *Stage-ready* on its own.
 - **Song details.** Key, tempo, length, tuning, notes, and links (YouTube, Spotify, tabs, Cifra Club…). Edits autosave.
+- **Song tabs.** Each song sheet has tabs: *Geral* (everything above), *Letra* (lyrics; `[Refrão]`-style section labels and chord-only lines are highlighted; covers can pull lyrics from [LRCLIB](https://lrclib.net)), *Cifra* (chord sheet, fixed-width), *Tab* (tablature), *Áudios* (rehearsal takes, demos: up to 60 MB each, playable in the page) and *Imagens* (photos of charts; big phone photos are shrunk to 2400 px before upload). Sheets autosave and update live on everyone's screen.
 - **Setlists.** Shows and rehearsals with date, time and venue. Drag to reorder, add set breaks and notes, see total and per-set runtime, how many songs aren't stage-ready, and where you'll need to **retune** between songs.
 - **Rehearsal planning.** A new rehearsal can start with the songs that need the most work (in progress, or ready but someone isn't solid), least recently rehearsed first. Tick songs off as you play them; that updates "last rehearsed".
 - **Stage mode.** Full-screen, high-contrast, one song at a time with what's next, retune warnings and notes. Swipe, tap, arrow keys or a Bluetooth page-turner pedal (PageUp/PageDown). Keeps the screen awake.
@@ -43,7 +44,7 @@ The rendered file is [`video/out/sound-carvers-tutorial.mp4`](video/out/sound-ca
 | Piece | Where |
 |---|---|
 | Container | `soundcarvers` in `~/services/compose.yaml`, built from this directory, `127.0.0.1:8099` |
-| Data | `~/services/soundcarvers/data/setlist.db` (SQLite, WAL) and `data/covers/` (downloaded album art) |
+| Data | `~/services/soundcarvers/data/setlist.db` (SQLite, WAL), `data/covers/` (downloaded album art) and `data/files/` (uploaded audio and images) |
 | Password | `SOUNDCARVERS_BAND_PASSWORD` in `~/services/.env` (mode 600) |
 | Public HTTPS | `soundcarvers.viniciusbregoli.dev` block in `~/services/public-proxy/Caddyfile` |
 | DNS | Cloudflare CNAME `soundcarvers` → `jellyfin.viniciusbregoli.dev` (DNS-only, follows the DDNS record) |

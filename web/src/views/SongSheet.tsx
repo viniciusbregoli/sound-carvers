@@ -10,6 +10,7 @@ import { columnSongs, useBand } from '../lib/store';
 import { LEVELS, STAGES, TUNINGS } from '../lib/stages';
 import { STATUSES, type Level, type Link, type Match, type Member, type Song } from '../lib/types';
 import { formatDuration, parseDuration, plural } from '../lib/format';
+import { FilesPanel, SongTabBar, TextPanel, isTextTab, panelId, tabId, useSongTexts, type SongTab } from './SongTabs';
 
 const KEYS = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'].flatMap((k) => [k, `${k}m`]);
 
@@ -25,6 +26,9 @@ const toDraft = (s: Song): Draft => ({
   bpm: s.bpm ? String(s.bpm) : '',
   duration: formatDuration(s.duration),
 });
+
+/** The tab stays put when opening the next song, so you can flip through lyrics or chords song by song. */
+let lastTab: SongTab = 'overview';
 
 export function SongSheet({ songId, onClose }: { songId: string | null; onClose: () => void }) {
   const { songsById } = useBand();
@@ -47,6 +51,20 @@ function SongForm({ song, onDeleted }: { song: Song; onDeleted: () => void }) {
   const pending = useRef<Partial<Song>>({});
   const timer = useRef<number>(undefined);
   const tint = useSongTint(song.cover, song.title);
+  const head = useRef<HTMLDivElement>(null);
+  const [tab, setTabState] = useState<SongTab>(lastTab);
+  const { texts, failed, remember } = useSongTexts(song, isTextTab(tab));
+
+  const setTab = (next: SongTab) => {
+    // Scrolled deep into a long sheet: land at the top of the new tab, not somewhere in its middle.
+    const body = head.current?.closest('.dialog-body');
+    if (head.current && body) {
+      const overshoot = body.getBoundingClientRect().top - head.current.getBoundingClientRect().bottom;
+      if (overshoot > 0) body.scrollTop -= overshoot;
+    }
+    lastTab = next;
+    setTabState(next);
+  };
 
   const flush = async () => {
     window.clearTimeout(timer.current);
@@ -146,7 +164,7 @@ function SongForm({ song, onDeleted }: { song: Song; onDeleted: () => void }) {
 
   return (
     <div className="song-form">
-      <div className="song-form-head" style={tint}>
+      <div className="song-form-head" style={tint} ref={head}>
         <CoverPicker song={song} />
         <div className="song-form-titles">
           <label htmlFor="song-title" className="visually-hidden">
@@ -204,229 +222,236 @@ function SongForm({ song, onDeleted }: { song: Song; onDeleted: () => void }) {
         </div>
       </div>
 
-      <fieldset className="section">
-        <legend className="section-title">Em que pé a banda está</legend>
-        <div className="segmented segmented-stages">
-          {STATUSES.map((s) => (
-            <label key={s} className={`segment stage-${s}`}>
-              <input
-                type="radio"
-                name="song-status"
-                value={s}
-                checked={song.status === s}
-                onChange={() => void moveSong(song.id, s, columnSongs(state.songs, s).length).catch(() => {})}
-              />
-              <StageIcon status={s} />
-              <span>{STAGES[s].label}</span>
-            </label>
-          ))}
-        </div>
-        <p className="hint">{STAGES[song.status].hint}</p>
-      </fieldset>
+      <SongTabBar song={song} tab={tab} onChange={setTab} />
 
-      <section className="section" aria-labelledby="confidence-title">
-        <h3 id="confidence-title" className="section-title">
-          Quem domina a música?
-        </h3>
-        {me && (
-          <fieldset className="my-confidence">
-            <legend className="field-label">Você, {me.name}</legend>
-            <div className="segmented segmented-levels">
-              {([1, 2, 3] as Level[]).map((l) => (
-                <label key={l} className={`segment level-${l}`} title={LEVELS[l].hint}>
-                  <input type="radio" name="my-level" value={l} checked={myLevel === l} onChange={() => void setConfidence(song.id, l).catch(() => {})} />
-                  <span className="level-dot">
-                    <LevelGlyph level={l} />
-                  </span>
-                  <span>{LEVELS[l].label}</span>
-                </label>
-              ))}
-            </div>
-            <p className="hint">
-              {myLevel ? LEVELS[myLevel].hint : 'Avalie a sua parte para a banda saber o que ensaiar.'}
-              {myLevel && (
-                <>
-                  {' · '}
-                  <button type="button" className="link-btn" onClick={() => void setConfidence(song.id, 0).catch(() => {})}>
-                    Limpar
-                  </button>
-                </>
-              )}
-            </p>
-          </fieldset>
-        )}
-        <ul className="member-levels" role="list">
-          {state.members
-            .filter((m) => m.id !== me?.id)
-            .map((m) => {
-              const l = levels.get(m.id);
-              return (
-                <li key={m.id} className={`member-level ${l ? `level-${l}` : 'level-none'}`}>
-                  <Avatar member={m} size="sm" />
-                  <span className="member-level-name">{m.name}</span>
-                  <span className="member-level-value">
-                    {l && (
-                      <span className="level-dot">
-                        <LevelGlyph level={l} />
-                      </span>
-                    )}
-                    {l ? LEVELS[l].label : 'Não avaliou'}
-                  </span>
-                </li>
-              );
-            })}
-        </ul>
-      </section>
+      <div role="tabpanel" id={panelId('overview')} aria-labelledby={tabId('overview')} className="song-panel" hidden={tab !== 'overview'}>
+        <fieldset className="section">
+          <legend className="section-title">Em que pé a banda está</legend>
+          <div className="segmented segmented-stages">
+            {STATUSES.map((s) => (
+              <label key={s} className={`segment stage-${s}`}>
+                <input
+                  type="radio"
+                  name="song-status"
+                  value={s}
+                  checked={song.status === s}
+                  onChange={() => void moveSong(song.id, s, columnSongs(state.songs, s).length).catch(() => {})}
+                />
+                <StageIcon status={s} />
+                <span>{STAGES[s].label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="hint">{STAGES[song.status].hint}</p>
+        </fieldset>
 
-      <section className="section" aria-labelledby="details-title">
-        <div className="section-head">
-          <h3 id="details-title" className="section-title">
-            Detalhes
+        <section className="section" aria-labelledby="confidence-title">
+          <h3 id="confidence-title" className="section-title">
+            Quem domina a música?
           </h3>
-          {!draft.original && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={lookUp} disabled={enriching}>
-              <Wand2 size={16} aria-hidden />
-              {enriching ? 'Buscando…' : 'Buscar tom, afinação e links'}
-            </button>
+          {me && (
+            <fieldset className="my-confidence">
+              <legend className="field-label">Você, {me.name}</legend>
+              <div className="segmented segmented-levels">
+                {([1, 2, 3] as Level[]).map((l) => (
+                  <label key={l} className={`segment level-${l}`} title={LEVELS[l].hint}>
+                    <input type="radio" name="my-level" value={l} checked={myLevel === l} onChange={() => void setConfidence(song.id, l).catch(() => {})} />
+                    <span className="level-dot">
+                      <LevelGlyph level={l} />
+                    </span>
+                    <span>{LEVELS[l].label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="hint">
+                {myLevel ? LEVELS[myLevel].hint : 'Avalie a sua parte para a banda saber o que ensaiar.'}
+                {myLevel && (
+                  <>
+                    {' · '}
+                    <button type="button" className="link-btn" onClick={() => void setConfidence(song.id, 0).catch(() => {})}>
+                      Limpar
+                    </button>
+                  </>
+                )}
+              </p>
+            </fieldset>
           )}
-        </div>
-        <div className="details-grid">
-          <div className="field">
-            <label htmlFor="song-key">Tom</label>
-            <input
-              id="song-key"
-              list="key-options"
-              maxLength={24}
-              placeholder="Ex.: Am"
-              value={draft.key}
-              onChange={(e) => {
-                set('key', e.target.value);
-                commitText('key', e.target.value);
-              }}
-              onBlur={flush}
-            />
-            <datalist id="key-options">
-              {KEYS.map((k) => (
-                <option key={k} value={k} />
-              ))}
-            </datalist>
-          </div>
-          <div className="field">
-            <label htmlFor="song-bpm">Andamento (bpm)</label>
-            <input
-              id="song-bpm"
-              inputMode="numeric"
-              placeholder="120"
-              value={draft.bpm}
-              onChange={(e) => set('bpm', e.target.value.replace(/\D/g, '').slice(0, 3))}
-              onBlur={commitBpm}
-              aria-invalid={!!errors.bpm}
-              aria-describedby={errors.bpm ? 'song-bpm-error' : undefined}
-            />
-            {errors.bpm && (
-              <p id="song-bpm-error" className="field-error">
-                {errors.bpm}
-              </p>
+          <ul className="member-levels" role="list">
+            {state.members
+              .filter((m) => m.id !== me?.id)
+              .map((m) => {
+                const l = levels.get(m.id);
+                return (
+                  <li key={m.id} className={`member-level ${l ? `level-${l}` : 'level-none'}`}>
+                    <Avatar member={m} size="sm" />
+                    <span className="member-level-name">{m.name}</span>
+                    <span className="member-level-value">
+                      {l && (
+                        <span className="level-dot">
+                          <LevelGlyph level={l} />
+                        </span>
+                      )}
+                      {l ? LEVELS[l].label : 'Não avaliou'}
+                    </span>
+                  </li>
+                );
+              })}
+          </ul>
+        </section>
+
+        <section className="section" aria-labelledby="details-title">
+          <div className="section-head">
+            <h3 id="details-title" className="section-title">
+              Detalhes
+            </h3>
+            {!draft.original && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={lookUp} disabled={enriching}>
+                <Wand2 size={16} aria-hidden />
+                {enriching ? 'Buscando…' : 'Buscar tom, afinação e links'}
+              </button>
             )}
           </div>
-          <div className="field">
-            <label htmlFor="song-duration">Duração</label>
-            <input
-              id="song-duration"
-              inputMode="decimal"
-              placeholder="3:45"
-              value={draft.duration}
-              onChange={(e) => set('duration', e.target.value)}
-              onBlur={commitDuration}
-              aria-invalid={!!errors.duration}
-              aria-describedby={errors.duration ? 'song-duration-error' : undefined}
-            />
-            {errors.duration && (
-              <p id="song-duration-error" className="field-error">
-                {errors.duration}
-              </p>
-            )}
+          <div className="details-grid">
+            <div className="field">
+              <label htmlFor="song-key">Tom</label>
+              <input
+                id="song-key"
+                list="key-options"
+                maxLength={24}
+                placeholder="Ex.: Am"
+                value={draft.key}
+                onChange={(e) => {
+                  set('key', e.target.value);
+                  commitText('key', e.target.value);
+                }}
+                onBlur={flush}
+              />
+              <datalist id="key-options">
+                {KEYS.map((k) => (
+                  <option key={k} value={k} />
+                ))}
+              </datalist>
+            </div>
+            <div className="field">
+              <label htmlFor="song-bpm">Andamento (bpm)</label>
+              <input
+                id="song-bpm"
+                inputMode="numeric"
+                placeholder="120"
+                value={draft.bpm}
+                onChange={(e) => set('bpm', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                onBlur={commitBpm}
+                aria-invalid={!!errors.bpm}
+                aria-describedby={errors.bpm ? 'song-bpm-error' : undefined}
+              />
+              {errors.bpm && (
+                <p id="song-bpm-error" className="field-error">
+                  {errors.bpm}
+                </p>
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="song-duration">Duração</label>
+              <input
+                id="song-duration"
+                inputMode="decimal"
+                placeholder="3:45"
+                value={draft.duration}
+                onChange={(e) => set('duration', e.target.value)}
+                onBlur={commitDuration}
+                aria-invalid={!!errors.duration}
+                aria-describedby={errors.duration ? 'song-duration-error' : undefined}
+              />
+              {errors.duration && (
+                <p id="song-duration-error" className="field-error">
+                  {errors.duration}
+                </p>
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="song-tuning">Afinação</label>
+              <input
+                id="song-tuning"
+                list="tuning-options"
+                maxLength={40}
+                placeholder="Padrão"
+                value={draft.tuning}
+                onChange={(e) => {
+                  set('tuning', e.target.value);
+                  commitText('tuning', e.target.value);
+                }}
+                onBlur={flush}
+              />
+              <datalist id="tuning-options">
+                {TUNINGS.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+            </div>
           </div>
-          <div className="field">
-            <label htmlFor="song-tuning">Afinação</label>
+          <label className="checkbox">
             <input
-              id="song-tuning"
-              list="tuning-options"
-              maxLength={40}
-              placeholder="Padrão"
-              value={draft.tuning}
+              type="checkbox"
+              checked={draft.original}
               onChange={(e) => {
-                set('tuning', e.target.value);
-                commitText('tuning', e.target.value);
+                set('original', e.target.checked);
+                queue({ original: e.target.checked }, 0);
               }}
-              onBlur={flush}
             />
-            <datalist id="tuning-options">
-              {TUNINGS.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </div>
-        </div>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={draft.original}
+            É uma música autoral
+          </label>
+          {!draft.original && <p className="hint">O tom vem da análise do Spotify e às vezes troca pelo relativo menor/maior. Confira de ouvido.</p>}
+        </section>
+
+        <Parts song={song} />
+
+        <details className="section notes-disclosure" open={!!song.notes.trim()}>
+          <summary className="section-title">Outras observações</summary>
+          <label htmlFor="song-notes" className="visually-hidden">
+            Outras observações
+          </label>
+          <textarea
+            id="song-notes"
+            rows={3}
+            placeholder="Estrutura, deixas, aquela parte que sempre erramos…"
+            value={draft.notes}
+            maxLength={10_000}
             onChange={(e) => {
-              set('original', e.target.checked);
-              queue({ original: e.target.checked }, 0);
+              set('notes', e.target.value);
+              commitText('notes', e.target.value, 1200);
             }}
+            onBlur={flush}
           />
-          É uma música autoral
-        </label>
-        {!draft.original && <p className="hint">O tom vem da análise do Spotify e às vezes troca pelo relativo menor/maior. Confira de ouvido.</p>}
-      </section>
+        </details>
 
-      <Parts song={song} />
+        <Links song={song} />
 
-      <details className="section notes-disclosure" open={!!song.notes.trim()}>
-        <summary className="section-title">Outras observações</summary>
-        <label htmlFor="song-notes" className="visually-hidden">
-          Outras observações
-        </label>
-        <textarea
-          id="song-notes"
-          rows={3}
-          placeholder="Estrutura, deixas, aquela parte que sempre erramos…"
-          value={draft.notes}
-          maxLength={10_000}
-          onChange={(e) => {
-            set('notes', e.target.value);
-            commitText('notes', e.target.value, 1200);
+        <div className="sheet-danger">
+          <button className="btn btn-ghost btn-danger-text btn-sm" onClick={() => setConfirming(true)}>
+            <Trash2 size={16} aria-hidden />
+            Excluir música
+          </button>
+        </div>
+        <ConfirmDialog
+          open={confirming}
+          onClose={() => setConfirming(false)}
+          title={`Excluir “${song.title}”?`}
+          message={
+            inSetlists.length
+              ? `Ela também sai de ${inSetlists.length === 1 ? '1 setlist' : `${inSetlists.length} setlists`}, e as avaliações de todo mundo se perdem. Não dá para desfazer.`
+              : 'As avaliações e anotações dela se perdem. Não dá para desfazer.'
+          }
+          confirmLabel="Excluir música"
+          onConfirm={() => {
+            pending.current = {};
+            onDeleted();
+            void deleteSong(song.id).catch(() => {});
           }}
-          onBlur={flush}
         />
-      </details>
-
-      <Links song={song} />
-
-      <div className="sheet-danger">
-        <button className="btn btn-ghost btn-danger-text btn-sm" onClick={() => setConfirming(true)}>
-          <Trash2 size={16} aria-hidden />
-          Excluir música
-        </button>
       </div>
-      <ConfirmDialog
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        title={`Excluir “${song.title}”?`}
-        message={
-          inSetlists.length
-            ? `Ela também sai de ${inSetlists.length === 1 ? '1 setlist' : `${inSetlists.length} setlists`}, e as avaliações de todo mundo se perdem. Não dá para desfazer.`
-            : 'As avaliações e anotações dela se perdem. Não dá para desfazer.'
-        }
-        confirmLabel="Excluir música"
-        onConfirm={() => {
-          pending.current = {};
-          onDeleted();
-          void deleteSong(song.id).catch(() => {});
-        }}
-      />
+
+      {isTextTab(tab) && <TextPanel key={tab} song={song} kind={tab} value={texts?.[tab]} failed={failed} onSaved={remember} />}
+      {(tab === 'audio' || tab === 'image') && <FilesPanel key={tab} song={song} kind={tab} />}
     </div>
   );
 }

@@ -194,7 +194,21 @@ export function createMusic(coversDir: string) {
     }
   }
 
-  return { lookup, fetchImage, saveCover, removeCover, details, coversDir };
+  /** Plain lyrics from LRCLIB (free and community-run), matched by title and artist, closest length first. */
+  async function lyrics(title: string, artist: string, duration: number | null): Promise<string | null> {
+    const params = new URLSearchParams({ track_name: title, ...(artist ? { artist_name: artist } : {}) });
+    const res = await fetch(`https://lrclib.net/api/search?${params}`, {
+      signal: AbortSignal.timeout(6000),
+      headers: { accept: 'application/json', 'user-agent': 'SoundCarversSetlist/1.0' },
+    });
+    if (!res.ok) throw new Error(`${res.status} from lrclib.net`);
+    const found = (await res.json()) as LrclibTrack[];
+    const candidates = found.filter((t) => !t.instrumental && t.plainLyrics?.trim() && sameSong(t.trackName, t.artistName, title, artist));
+    if (duration) candidates.sort((a, b) => Math.abs((a.duration ?? 0) - duration) - Math.abs((b.duration ?? 0) - duration));
+    return candidates[0]?.plainLyrics?.trim() ?? null;
+  }
+
+  return { lookup, fetchImage, saveCover, removeCover, details, lyrics, coversDir };
 }
 
 const norm = (s: string) =>
@@ -214,6 +228,7 @@ export function bestMatch(matches: Match[], title: string, artist: string): Matc
 }
 
 export type Details = { bpm: number | null; key: string | null; tuning: string | null; links: { label: string; url: string }[] };
+type LrclibTrack = { trackName: string; artistName: string; duration?: number; instrumental?: boolean; plainLyrics?: string | null };
 type SongsterrSong = { songId: number; title: string; artist: string; tracks?: { instrument: string; views?: number; tuning: number[] }[] };
 
 const slug = (s: string) => norm(s).replace(/ /g, '-');

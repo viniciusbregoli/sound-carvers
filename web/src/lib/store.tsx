@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, clientId } from './api';
+import { api, clientId, upload } from './api';
 import { useToast } from '../components/Toast';
 import { STAGES } from './stages';
-import type { BandState, Level, Member, Setlist, SetlistItem, Song, Status } from './types';
+import type { BandState, Level, Member, Setlist, SetlistItem, Song, Status, TextKind } from './types';
 
 export type NewSong = Partial<Omit<Song, 'cover'>> & { title: string; coverUrl?: string | null; deezerId?: number | null };
 
@@ -26,6 +26,13 @@ type Store = {
   setConfidence: (songId: string, level: Level | 0) => Promise<void>;
   markRehearsed: (songId: string, at?: number | null) => Promise<void>;
   setPart: (songId: string, memberId: string, role: string) => Promise<void>;
+  /** Saves a lyrics/chords/tab sheet (empty removes it); resolves with its new version stamp. */
+  saveText: (songId: string, kind: TextKind, body: string) => Promise<number | null>;
+  /** Fills empty lyrics from the internet; resolves false when nothing was found. */
+  lookupLyrics: (songId: string) => Promise<boolean>;
+  uploadFile: (songId: string, file: Blob, type: string, name: string, onProgress?: (fraction: number) => void) => Promise<void>;
+  renameFile: (id: string, name: string) => Promise<void>;
+  deleteFile: (id: string) => Promise<void>;
   addSetlist: (setlist: Partial<Setlist> & { name: string }) => Promise<string>;
   updateSetlist: (id: string, patch: Partial<Setlist>) => Promise<void>;
   setItems: (id: string, items: SetlistItem[]) => Promise<void>;
@@ -167,6 +174,7 @@ export function BandProvider({ initial, memberId, children }: { initial: BandSta
           (s) => ({
             ...s,
             songs: s.songs.filter((x) => x.id !== id),
+            files: s.files.filter((f) => f.songId !== id),
             setlists: s.setlists.map((l) => ({ ...l, items: l.items.filter((i) => i.songId !== id) })),
           }),
           () => api('DELETE', `/api/songs/${id}`),
@@ -204,6 +212,29 @@ export function BandProvider({ initial, memberId, children }: { initial: BandSta
           }),
           () => api('PUT', `/api/songs/${songId}/parts/${memberId}`, { role }),
         ),
+      saveText: async (songId, kind, body) => {
+        try {
+          const { updatedAt } = await api<{ updatedAt: number | null }>('PUT', `/api/songs/${songId}/texts/${kind}`, { body });
+          setState((s) => ({
+            ...s,
+            songs: s.songs.map((song) => {
+              if (song.id !== songId) return song;
+              const { [kind]: _, ...rest } = song.texts;
+              return { ...song, texts: updatedAt ? { ...rest, [kind]: updatedAt } : rest };
+            }),
+          }));
+          return updatedAt;
+        } catch (err) {
+          toast.error((err as Error).message);
+          throw err;
+        }
+      },
+      lookupLyrics: (songId) => withRefresh(() => api<{ found: boolean }>('POST', `/api/songs/${songId}/lyrics/lookup`).then((r) => r.found)),
+      uploadFile: (songId, file, type, name, onProgress) =>
+        withRefresh(() => upload(`/api/songs/${songId}/files?name=${encodeURIComponent(name)}`, file, type, onProgress).then(() => undefined)),
+      renameFile: (id, name) =>
+        optimistic((s) => ({ ...s, files: s.files.map((f) => (f.id === id ? { ...f, name } : f)) }), () => api('PATCH', `/api/files/${id}`, { name })),
+      deleteFile: (id) => optimistic((s) => ({ ...s, files: s.files.filter((f) => f.id !== id) }), () => api('DELETE', `/api/files/${id}`)),
       markRehearsed: (songId, at) =>
         optimistic(patchSong(songId, { lastRehearsed: at === undefined ? Date.now() : at }), () =>
           api('POST', `/api/songs/${songId}/rehearsed`, at === undefined ? {} : { at }),

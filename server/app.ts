@@ -5,6 +5,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { STATUSES, tx, type Db, type Status } from './db.ts';
 import * as v from './validate.ts';
 import { bestMatch, coverType, isArtUrl, isCoverFile, type Match, type Music } from './music.ts';
+import { MAX_BYTES, TooLarge, uploadType, type FileKind, type Files } from './files.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -17,6 +18,7 @@ export type Config = {
   secureCookies: boolean;
   bandName: string;
   music: Music;
+  files: Files;
   /** Look new songs up online in the background (off in tests). */
   enrichOnAdd?: boolean;
 };
@@ -93,8 +95,18 @@ function artUrl(body: Record<string, unknown>): string | null | undefined {
 }
 const SETLIST_KINDS = ['show', 'rehearsal'] as const;
 
+/** Text sheets kept per song, each in its own tab of the song sheet. */
+const TEXT_KINDS = ['lyrics', 'chords', 'tab'] as const;
+type TextKind = (typeof TEXT_KINDS)[number];
+const TEXT_MAX: Record<TextKind, number> = { lyrics: 20_000, chords: 40_000, tab: 100_000 };
+const MAX_FILES_PER_SONG = 60;
+
+const tooBig = (kind: FileKind) =>
+  kind === 'audio' ? `Áudios podem ter até ${MAX_BYTES.audio / 1e6} MB. Exporte em MP3 ou M4A para ficar menor.` : `Imagens podem ter até ${MAX_BYTES.image / 1e6} MB.`;
+const fileName = (raw: string) => raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+
 export function createApp(db: Db, config: Config) {
-  const { music } = config;
+  const { music, files } = config;
   const app = new Hono<{ Variables: Vars }>();
   const limiter = new LoginLimiter();
   const listeners = new Set<(event: { origin: string | null }) => void>();
@@ -142,7 +154,12 @@ export function createApp(db: Db, config: Config) {
       const origin = c.req.header('origin');
       const host = c.req.header('x-forwarded-host') ?? c.req.header('host');
       if (origin && new URL(origin).host !== host) return c.json({ error: 'Requisição de outro site recusada' }, 403);
-      if (!(c.req.header('content-type') ?? '').startsWith('application/json')) {
+      // Uploads carry the file's own type (audio/*, image/*). Browsers can't send those cross-site without a CORS
+      // preflight we never answer, and every browser sends Origin on POST, so require it there.
+      const upload = c.req.method === 'POST' && /^\/api\/songs\/[^/]+\/files$/.test(c.req.path);
+      if (upload) {
+        if (!origin) return c.json({ error: 'Requisição de outro site recusada' }, 403);
+      } else if (!(c.req.header('content-type') ?? '').startsWith('application/json')) {
         return c.json({ error: 'Formato de requisição inválido' }, 415);
       }
     }
@@ -249,7 +266,15 @@ export function createApp(db: Db, config: Config) {
 
   app.get('/api/state', (c) => {
     const members = db.prepare('SELECT id, name, instrument, color, created_at AS createdAt FROM members ORDER BY created_at').all();
-    const songs = (db.prepare('SELECT * FROM songs ORDER BY status, position').all() as SongRow[]).map(songOut);
+    // Which sheets each song has (and when they changed), so open song sheets know to refetch them.
+    const texts = new Map<string, Record<string, number>>();
+    for (const t of db.prepare('SELECT song_id AS songId, kind, updated_at AS updatedAt FROM song_texts').all() as { songId: string; kind: string; updatedAt: number }[]) {
+      texts.set(t.songId, { ...texts.get(t.songId), [t.kind]: t.updatedAt });
+    }
+    const songs = (db.prepare('SELECT * FROM songs ORDER BY status, position').all() as SongRow[]).map((r) => ({ ...songOut(r), texts: texts.get(r.id) ?? {} }));
+    const songFiles = (
+      db.prepare('SELECT id, song_id AS songId, kind, name, mime, size, created_by AS createdBy, created_at AS createdAt FROM song_files ORDER BY created_at').all() as { id: string }[]
+    ).map((f) => ({ ...f, url: `/api/files/${f.id}` }));
     const confidence = db.prepare('SELECT song_id AS songId, member_id AS memberId, level, updated_at AS updatedAt FROM confidence').all();
     const parts = db.prepare('SELECT song_id AS songId, member_id AS memberId, role FROM parts').all();
     const setlists = db
@@ -272,6 +297,7 @@ export function createApp(db: Db, config: Config) {
       songs,
       confidence,
       parts,
+      files: songFiles,
       setlists: setlists.map((s) => ({ ...s, items: bySetlist.get(s.id as string) ?? [] })),
       activity,
     });
@@ -555,6 +581,7 @@ export function createApp(db: Db, config: Config) {
   app.delete('/api/songs/:id', (c) => {
     const song = getSong(c.req.param('id'));
     if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    const stored = db.prepare('SELECT file FROM song_files WHERE song_id = ?').all(song.id) as { file: string }[];
     tx(db, () => {
       db.prepare('DELETE FROM songs WHERE id = ?').run(song.id);
       const rest = db.prepare('SELECT id FROM songs WHERE status = ? ORDER BY position').all(song.status) as { id: string }[];
@@ -562,6 +589,145 @@ export function createApp(db: Db, config: Config) {
       log(me(c), 'song.deleted', { title: song.title });
     });
     music.removeCover(song.cover);
+    for (const f of stored) files.remove(f.file);
+    broadcast(c);
+    return c.json({ ok: true });
+  });
+
+  // ---- lyrics, chords and tabs ----
+
+  const textKind = (raw: string) => TEXT_KINDS.find((k) => k === raw);
+
+  app.get('/api/songs/:id/texts', (c) => {
+    const song = getSong(c.req.param('id'));
+    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    const out: Record<TextKind, string> = { lyrics: '', chords: '', tab: '' };
+    for (const r of db.prepare('SELECT kind, body FROM song_texts WHERE song_id = ?').all(song.id) as { kind: TextKind; body: string }[]) {
+      if (r.kind in out) out[r.kind] = r.body;
+    }
+    return c.json(out);
+  });
+
+  /** Saves one sheet; an empty body removes it. Logged only when the sheet first appears, not on every keystroke save. */
+  const writeText = (song: SongRow, kind: TextKind, body: string, memberId: string | null): number | null => {
+    const had = db.prepare('SELECT 1 FROM song_texts WHERE song_id = ? AND kind = ?').get(song.id, kind);
+    if (!body.trim()) {
+      db.prepare('DELETE FROM song_texts WHERE song_id = ? AND kind = ?').run(song.id, kind);
+      return null;
+    }
+    const at = now();
+    db.prepare(
+      `INSERT INTO song_texts (song_id, kind, body, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (song_id, kind) DO UPDATE SET body = excluded.body, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    ).run(song.id, kind, body, memberId, at);
+    if (!had) log(memberId, 'song.text', { songId: song.id, title: song.title, kind });
+    return at;
+  };
+
+  app.put('/api/songs/:id/texts/:kind', async (c) => {
+    const kind = textKind(c.req.param('kind'));
+    const song = getSong(c.req.param('id'));
+    if (!kind || !song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    const body = v.text(v.obj(await c.req.json()), 'body', TEXT_MAX[kind]) ?? '';
+    const updatedAt = writeText(song, kind, body, me(c));
+    broadcast(c);
+    // The saving tab learns the new version stamp, so it doesn't refetch what it just wrote.
+    return c.json({ ok: true, updatedAt });
+  });
+
+  /** Fills an empty lyrics sheet from LRCLIB. Never replaces lyrics the band already has. */
+  app.post('/api/songs/:id/lyrics/lookup', async (c) => {
+    const song = getSong(c.req.param('id'));
+    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    let found: string | null;
+    try {
+      found = await music.lyrics(song.title, song.artist, song.duration);
+    } catch (err) {
+      console.warn('lyrics lookup failed:', (err as Error).message);
+      return c.json({ error: 'A busca de letras está fora do ar agora. Tente mais tarde ou cole a letra.' }, 502);
+    }
+    const existing = db.prepare('SELECT 1 FROM song_texts WHERE song_id = ? AND kind = ?').get(song.id, 'lyrics');
+    if (!found || existing) return c.json({ found: false });
+    writeText(song, 'lyrics', found, me(c));
+    broadcast(c);
+    return c.json({ found: true });
+  });
+
+  // ---- audio and images ----
+
+  /** Raw body with the file's own content type; the name travels in the query string. */
+  app.post('/api/songs/:id/files', async (c) => {
+    const song = getSong(c.req.param('id'));
+    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    const type = uploadType(c.req.header('content-type') ?? '');
+    if (!type) return c.json({ error: 'Esse tipo de arquivo não é aceito. Envie áudio (MP3, M4A, WAV, OGG, FLAC) ou imagem (JPG, PNG, WEBP, GIF).' }, 415);
+    const max = MAX_BYTES[type.kind];
+    if (Number(c.req.header('content-length') ?? 0) > max) return c.json({ error: tooBig(type.kind) }, 413);
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM song_files WHERE song_id = ?').get(song.id) as { count: number };
+    if (count >= MAX_FILES_PER_SONG) throw new v.BadRequest(`Cada música guarda até ${MAX_FILES_PER_SONG} arquivos. Apague alguns antes de enviar mais.`);
+    const body = c.req.raw.body;
+    if (!body) throw new v.BadRequest('O arquivo está vazio');
+    let saved: { file: string; size: number };
+    try {
+      saved = await files.save(body, type.ext, max);
+    } catch (err) {
+      if (err instanceof TooLarge) return c.json({ error: tooBig(type.kind) }, 413);
+      throw err;
+    }
+    if (!saved.size || !getSong(song.id)) {
+      files.remove(saved.file);
+      if (!saved.size) throw new v.BadRequest('O arquivo está vazio');
+      return c.json({ error: 'Essa música não existe mais' }, 404);
+    }
+    const id = randomUUID();
+    const name = fileName(c.req.query('name') ?? '') || (type.kind === 'audio' ? 'Áudio' : 'Imagem');
+    db.prepare('INSERT INTO song_files (id, song_id, kind, name, file, mime, size, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      id, song.id, type.kind, name, saved.file, type.mime, saved.size, me(c), now(),
+    );
+    log(me(c), 'song.file', { songId: song.id, title: song.title, kind: type.kind, name });
+    broadcast(c);
+    return c.json({ id }, 201);
+  });
+
+  app.get('/api/files/:id', (c) => {
+    const row = db.prepare('SELECT file, mime, name FROM song_files WHERE id = ?').get(c.req.param('id')) as
+      | { file: string; mime: string; name: string }
+      | undefined;
+    if (!row) return c.json({ error: 'Não encontrado' }, 404);
+    let out: ReturnType<Files['read']>;
+    try {
+      out = files.read(row.file, c.req.header('range'));
+    } catch {
+      return c.json({ error: 'Não encontrado' }, 404);
+    }
+    const ext = row.file.slice(row.file.lastIndexOf('.'));
+    const headers: Record<string, string> = {
+      'content-type': row.mime,
+      'accept-ranges': 'bytes',
+      // Ids are random and never reused, so the browser can keep the bytes forever.
+      'cache-control': 'private, max-age=31536000, immutable',
+      'content-disposition': `${c.req.query('download') === undefined ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name + ext)}`,
+    };
+    if (out.status === 416) return c.body(null, 416, { ...headers, 'content-range': `bytes */${out.size}` });
+    headers['content-length'] = String(out.end - out.start + 1);
+    if (out.status === 206) headers['content-range'] = `bytes ${out.start}-${out.end}/${out.size}`;
+    return c.body(out.stream, out.status, headers);
+  });
+
+  app.patch('/api/files/:id', async (c) => {
+    const name = fileName(v.str(v.obj(await c.req.json()), 'name', 120, { required: true })!);
+    if (!name) throw new v.BadRequest('Preencha o campo nome');
+    const res = db.prepare('UPDATE song_files SET name = ? WHERE id = ?').run(name, c.req.param('id'));
+    if (!res.changes) return c.json({ error: 'Esse arquivo não existe mais' }, 404);
+    broadcast(c);
+    return c.json({ ok: true });
+  });
+
+  app.delete('/api/files/:id', (c) => {
+    const row = db.prepare('SELECT file FROM song_files WHERE id = ?').get(c.req.param('id')) as { file: string } | undefined;
+    if (!row) return c.json({ error: 'Esse arquivo não existe mais' }, 404);
+    db.prepare('DELETE FROM song_files WHERE id = ?').run(c.req.param('id'));
+    files.remove(row.file);
     broadcast(c);
     return c.json({ ok: true });
   });

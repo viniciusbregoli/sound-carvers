@@ -7,6 +7,7 @@
 :root {
   --font-ui: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Bricolage Grotesque Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   /* Type scale, named by use */
   --fs-caption: 0.75rem; /* 12 */
