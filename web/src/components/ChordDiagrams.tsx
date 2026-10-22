@@ -9,6 +9,22 @@ type GuitarDb = { chords: Record<string, { suffix: string; positions: Position[]
 const INSTRUMENT_KEY = 'sc-chord-instrument';
 const OPEN_KEY = 'sc-chords-open';
 
+// Browser storage can be blocked (some private modes) or full; the preference then just isn't remembered.
+function stored(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function store(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Keep going with the in-memory choice.
+  }
+}
+
 // The fingering database (~240 KB, cached by the browser) only loads once someone opens a sheet with chords.
 let guitarDb: Promise<GuitarDb> | null = null;
 function loadGuitarDb() {
@@ -39,13 +55,13 @@ function useGuitarDb() {
 /** Diagrams for every chord a sheet uses, on guitar or piano (the choice sticks on this device). */
 export function ChordDiagrams({ text, tuning }: { text: string; tuning: string }) {
   const chords = useMemo(() => chordsIn(text).map(parseChord).filter((c): c is Chord => !!c), [text]);
-  const [instrument, setInstrument] = useState<Instrument>(() => (localStorage.getItem(INSTRUMENT_KEY) === 'piano' ? 'piano' : 'guitar'));
-  const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) !== 'closed');
+  const [instrument, setInstrument] = useState<Instrument>(() => (stored(INSTRUMENT_KEY) === 'piano' ? 'piano' : 'guitar'));
+  const [open, setOpen] = useState(() => stored(OPEN_KEY) !== 'closed');
   if (!chords.length) return null;
 
   const pick = (next: Instrument) => {
     setInstrument(next);
-    localStorage.setItem(INSTRUMENT_KEY, next);
+    store(INSTRUMENT_KEY, next);
   };
   const retuned = instrument === 'guitar' && tuning && tuning !== 'Padrão';
 
@@ -56,7 +72,7 @@ export function ChordDiagrams({ text, tuning }: { text: string; tuning: string }
       onToggle={(e) => {
         const now = e.currentTarget.open;
         setOpen(now);
-        localStorage.setItem(OPEN_KEY, now ? 'open' : 'closed');
+        store(OPEN_KEY, now ? 'open' : 'closed');
       }}
     >
       <summary className="section-title">Acordes ({chords.length})</summary>

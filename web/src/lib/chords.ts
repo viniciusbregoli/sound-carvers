@@ -4,7 +4,7 @@
 // A chord: root, accidental, quality, extensions like 7M, m7(b5), sus4, add9, and an optional bass note (or the
 // Brazilian 7/4, 6/9). One digit per repetition: `\d+` inside the outer `*` backtracks exponentially on a long digit
 // run that then fails.
-const CHORD = /^\(?[A-G][#b♯♭]?(?:maj|min|m|M|dim|aug|sus|add|°|ø|\+|-)?(?:\d|maj|M|add|sus|[#b♯♭+-]|\([^)\s]*\))*(?:\/(?:[A-G][#b♯♭]?|\d{1,2}))?\)?$/;
+const CHORD = /^\(?[A-G][#b♯♭]?(?:maj|min|m|M|dim|aug|sus|add|°|ø|o|Δ|\+|-)?(?:\d|maj|M|add|sus|[#b♯♭+-]|\([^)\s]*\))*(?:\/(?:[A-G][#b♯♭]?|\d{1,2}))?\)?$/;
 // Bar lines, dashes and repeat marks that sit between chords.
 const FILLER = /^(?:\|+:?|:\|+|-+|–|—|x\d+|\d+x|\(\d*x\d*\)|%|\.{2,}|\/)$/i;
 
@@ -90,7 +90,7 @@ const ALIASES: Record<string, string> = {
   '7': '7', '7b5': '7b5', '7-5': '7b5', '7#5': 'aug7', '7+5': 'aug7', aug7: 'aug7', '+7': 'aug7',
   '79': '9', '7/9': '9', '7(9)': '9', '7b9': '7b9', '7-9': '7b9', '7#9': '7#9', '7+9': '7#9',
   '711': '11', '7(11)': '11', '11': '11', '713': '13', '7(13)': '13', '13': '13',
-  '7M': 'maj7', maj7: 'maj7', M7: 'maj7', 'Δ': 'maj7', '7M9': 'maj9', '7M(9)': 'maj9', maj9: 'maj9',
+  '7M': 'maj7', maj7: 'maj7', M7: 'maj7', 'Δ': 'maj7', 'Δ7': 'maj7', '7M9': 'maj9', '7M(9)': 'maj9', maj9: 'maj9',
   '9': 'add9', add9: 'add9', '(9)': 'add9', add2: 'add9',
   m6: 'm6', m7: 'm7', min7: 'm7', '-7': 'm7',
   m7b5: 'm7b5', 'm7(b5)': 'm7b5', 'm7-5': 'm7b5', ø: 'm7b5', ø7: 'm7b5',

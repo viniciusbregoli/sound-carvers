@@ -33,6 +33,8 @@ test('finds the chords a sheet uses, only on chord lines', () => {
   assert.deepEqual(chordsIn(sheet), ['Am', 'F', 'C', 'G', 'C7M', 'G/B']);
   assert.ok(isChordLine('B - D#m - E'));
   assert.ok(isChordLine('A7/4  D'));
+  assert.deepEqual(chordsIn('CΔ  FΔ7  Bo  Co7'), ['CΔ', 'FΔ7', 'Bo', 'Co7'], 'Δ and o spellings count as chords');
+  assert.deepEqual(['CΔ', 'FΔ7', 'Bo', 'Co7'].map((c) => parseChord(c)?.quality), ['maj7', 'maj7', 'dim', 'dim7']);
   assert.ok(!isChordLine('E agora a vida segue'));
   assert.ok(!isChordLine(`A${'1'.repeat(60)}.`), 'long digit runs fail fast instead of hanging');
 });
