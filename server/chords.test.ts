@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { chordsIn, fitsChord, guitarLookup, isChordLine, parseChord, pianoVoicing, powerChordShapes, QUALITIES } from '../web/src/lib/chords.ts';
+import { chordsIn, findGuitarShapes, fitsChord, guitarLookup, isChordLine, parseChord, pianoVoicing, powerChordShapes, QUALITIES } from '../web/src/lib/chords.ts';
 
 test('reads chord symbols the way cifras write them', () => {
   const q = (s: string) => parseChord(s)?.quality;
@@ -23,6 +23,28 @@ test('reads chord symbols the way cifras write them', () => {
   assert.equal(q('B5(9)'), '5add9');
   assert.equal(q('Am6(9)'), 'm69');
   assert.equal(q('C7M(#5)'), 'maj7#5');
+  // The rest of the commonly used qualities (Chordonomicon), in cifra and American spellings.
+  assert.equal(q('Cadd11'), 'add11');
+  assert.equal(q('Am(11)'), 'madd11');
+  assert.equal(q('A7sus2'), '7sus2');
+  assert.equal(q('Am13'), 'm13');
+  assert.equal(q('Cmaj7sus2'), 'maj7sus2');
+  assert.equal(q('A4(9)'), 'sus4add9');
+  assert.equal(q('G7/4(9)'), '9sus4');
+  assert.equal(q('E7(b13)'), '7b13');
+  assert.equal(q('Bº'), 'dim');
+  // Extension combinations are read piece by piece, and named when the database knows those notes.
+  assert.equal(q('C7(9/13)'), '13');
+  assert.equal(q('Am7(9)(11)'), 'm11');
+  assert.equal(q('C7M(9)(#11)'), '0-4-7-11-14-18');
+  assert.equal(q('G7(4)(b9)'), '0-5-7-10-13');
+  assert.equal(q('E7(#9)(b13)'), '0-4-7-10-15-20');
+  assert.equal(q('D7(9-)'), '7b9');
+  assert.equal(q('Cmaj9sus4'), '0-5-7-11-14');
+  assert.equal(q('C7(b5)(9)'), '0-4-6-10-14');
+  assert.equal(q('Cm(add4)'), 'madd11');
+  assert.equal(parseChord('C7(9/Q)'), null);
+  assert.equal(parseChord('Cfoo'), null);
   assert.equal(parseChord('Hm'), null);
   assert.equal(parseChord('Dumb'), null);
 
@@ -36,6 +58,7 @@ test('finds the chords a sheet uses, only on chord lines', () => {
   assert.deepEqual(chordsIn(sheet), ['Am', 'F', 'C', 'G', 'C7M', 'G/B']);
   assert.ok(isChordLine('B - D#m - E'));
   assert.ok(isChordLine('A7/4  D'));
+  assert.ok(isChordLine('A7/4(9)  Bº  C7(9/13)'));
   assert.deepEqual(chordsIn('CΔ  FΔ7  Bo  Co7'), ['CΔ', 'FΔ7', 'Bo', 'Co7'], 'Δ and o spellings count as chords');
   assert.deepEqual(['CΔ', 'FΔ7', 'Bo', 'Co7'].map((c) => parseChord(c)?.quality), ['maj7', 'maj7', 'dim', 'dim7']);
   assert.ok(!isChordLine('E agora a vida segue'));
@@ -60,7 +83,8 @@ test('guitar shapes come from the database, minus the ones that play wrong notes
   };
   const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
   const symbols = { major: '', minor: 'm', dim: '°', dim7: '°7', aug: '+', sus2: 'sus2', sus4: '4', '7sus4': '7/4', '6': '6', '69': '6/9', '7': '7', '7b5': '7(b5)', aug7: '7(#5)', '9': '7(9)', '7b9': '7(b9)', '7#9': '7(#9)', '11': '7(11)', '13': '7(13)', maj7: '7M', maj9: '7M(9)', maj13: '7M(13)', 'maj7#5': '7M(#5)', add9: '9', m6: 'm6', m69: 'm6/9', m7: 'm7', m7b5: 'm7(b5)', m9: 'm7(9)', m11: 'm7(11)', mmaj7: 'm7M', madd9: 'm(9)' } as Record<string, string>;
-  assert.deepEqual(Object.keys(symbols).sort(), Object.keys(QUALITIES).filter((q) => q !== '5' && q !== '5add9').sort(), 'every quality but power chords is checked');
+  const searched = ['sus4add9', '7sus2', '9sus4', '7#11', '7b13', 'maj7#11', 'maj7sus2', 'maj7sus4', 'add11', 'm13', 'madd11'];
+  assert.deepEqual(Object.keys(symbols).sort(), Object.keys(QUALITIES).filter((q) => q !== '5' && q !== '5add9' && !searched.includes(q)).sort(), 'every database quality is checked');
   const missing: string[] = [];
   let shown = 0;
   for (const root of names) {
@@ -107,4 +131,35 @@ test('power chords get built shapes, lowest on the neck first', () => {
   const b9 = powerChordShapes(parseChord('B5(9)')!)[0];
   assert.deepEqual([b9.frets, b9.baseFret], [[-1, 1, 3, 5, -1, -1], 2], 'B5(9): x-2-4-6, drawn from fret 2');
   assert.deepEqual(powerChordShapes(parseChord('C')!), []);
+});
+
+test('shapes are found for chords the database lacks, and they play only chord tones', () => {
+  const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  const show = (p: { frets: number[]; baseFret: number }) => p.frets.map((f) => (f < 0 ? 'x' : f === 0 ? 0 : f + p.baseFret - 1)).join('');
+  const started = performance.now();
+  for (const root of names) {
+    for (const quality of Object.keys(QUALITIES).filter((q) => q !== '5' && q !== '5add9')) {
+      for (const bass of ['', '/E']) {
+        const chord = parseChord(root + (quality === 'major' ? '' : quality === 'minor' ? 'm' : quality) + bass);
+        if (!chord) continue;
+        const shapes = findGuitarShapes(chord);
+        if (!bass) assert.ok(shapes.length, `${chord.symbol} gets a shape`);
+        for (const p of shapes) {
+          assert.ok(fitsChord(chord, p.midi, !!bass), `${chord.symbol} ${show(p)}`);
+          assert.ok(Math.max(...p.frets) <= 5, `${chord.symbol} ${show(p)} fits the box`);
+          assert.ok(p.frets.filter((f) => f > 0).length <= 4 || p.barres.length, `${chord.symbol} ${show(p)} fits four fingers`);
+        }
+      }
+    }
+  }
+  assert.ok(performance.now() - started < 10_000, 'fast enough to run in the browser');
+  // The open shapes everyone knows come first.
+  assert.equal(show(findGuitarShapes(parseChord('C')!)[0]), 'x32010');
+  assert.equal(show(findGuitarShapes(parseChord('D')!)[0]), 'xx0232');
+  assert.equal(show(findGuitarShapes(parseChord('A7sus2')!)[0]), 'x02000');
+  assert.equal(show(findGuitarShapes(parseChord('C/E')!)[0]), '032010');
+  assert.deepEqual(findGuitarShapes(parseChord('F')!)[0].barres, [1]);
+  // The two the database gets wrong now have shapes.
+  assert.ok(findGuitarShapes(parseChord('C#7(11)')!).length);
+  assert.ok(findGuitarShapes(parseChord('Em(9)')!).length);
 });
