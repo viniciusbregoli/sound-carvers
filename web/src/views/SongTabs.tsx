@@ -304,7 +304,8 @@ export function TextPanel({
 }
 
 // A chord: root, accidental, quality, extensions like 7M, m7(b5), sus4, add9, and an optional bass note.
-const CHORD = /^\(?[A-G][#b♯♭]?(?:maj|min|m|M|dim|aug|sus|add|°|ø|\+|-)?(?:\d+|maj|M|add|sus|[#b♯♭+-]|\([^)\s]*\))*(?:\/[A-G][#b♯♭]?)?\)?$/;
+// One digit per repetition: `\d+` inside the outer `*` backtracks exponentially on a long digit run that then fails.
+const CHORD = /^\(?[A-G][#b♯♭]?(?:maj|min|m|M|dim|aug|sus|add|°|ø|\+|-)?(?:\d|maj|M|add|sus|[#b♯♭+-]|\([^)\s]*\))*(?:\/[A-G][#b♯♭]?)?\)?$/;
 // Bar lines, dashes and repeat marks that sit between chords.
 const FILLER = /^(?:\|+:?|:\|+|-+|–|—|x\d+|\d+x|\(\d*x\d*\)|%|\.{2,}|\/)$/i;
 

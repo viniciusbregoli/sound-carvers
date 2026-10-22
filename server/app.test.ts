@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from './app.ts';
 import { openDb } from './db.ts';
 import { bestMatch, createMusic, tuningName } from './music.ts';
-import { createFiles } from './files.ts';
+import { createFiles, sniff } from './files.ts';
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'setlist-'));
@@ -151,10 +151,17 @@ test('audio and image uploads: type and origin checks, ranges, rename, delete', 
   const { call, upload, raw, dir, cleanup } = setup();
   await call('POST', '/api/login', { password: 'correct horse' });
   const song = (await call('POST', '/api/songs', { title: 'Song A' })).body.id;
+  // An MP3 (ID3 header) and a JPEG; the rest of the bytes count up, to check ranges.
   const bytes = new Uint8Array(1000).map((_, i) => i % 256);
+  bytes.set([0x49, 0x44, 0x33]);
+  const jpeg = new Uint8Array(1000).map((_, i) => i % 256);
+  jpeg.set([0xff, 0xd8, 0xff]);
 
   assert.equal((await upload(`/api/songs/${song}/files?name=x`, bytes, 'image/svg+xml')).status, 415);
   assert.equal((await upload(`/api/songs/${song}/files?name=x`, bytes, 'text/html')).status, 415);
+  const disguised = new TextEncoder().encode('<html><script>alert(1)</script></html>');
+  assert.equal((await upload(`/api/songs/${song}/files?name=x`, disguised, 'audio/mpeg')).status, 415, 'HTML labeled as audio');
+  assert.equal((await upload(`/api/songs/${song}/files?name=x`, jpeg, 'audio/mpeg')).status, 415, 'an image sent as audio');
   assert.equal((await upload(`/api/songs/${song}/files`, bytes, 'audio/mpeg', { origin: 'https://evil.example' })).status, 403);
   assert.equal((await upload(`/api/songs/${song}/files`, new Uint8Array(0), 'audio/mpeg')).status, 400);
   assert.equal((await upload(`/api/songs/${song}/files`, new Uint8Array(16_000_000), 'image/png')).status, 413);
@@ -163,7 +170,8 @@ test('audio and image uploads: type and origin checks, ranges, rename, delete', 
   const res = await upload(`/api/songs/${song}/files?name=${encodeURIComponent('Ensaio 21/10')}`, bytes, 'audio/mpeg');
   assert.equal(res.status, 201);
   const { id } = (await res.json()) as { id: string };
-  await upload(`/api/songs/${song}/files?name=chart`, bytes, 'image/jpeg');
+  // Mislabeled but real: a JPEG declared as PNG is stored and served as the JPEG it is.
+  assert.equal((await upload(`/api/songs/${song}/files?name=chart`, jpeg, 'image/png')).status, 201);
 
   const state = (await call('GET', '/api/state')).body;
   assert.deepEqual(
@@ -171,6 +179,7 @@ test('audio and image uploads: type and origin checks, ranges, rename, delete', 
     [['audio', 'Ensaio 21/10', 1000], ['image', 'chart', 1000]],
   );
   assert.equal(state.files[0].url, `/api/files/${id}`);
+  assert.equal(state.files[1].mime, 'image/jpeg');
 
   const whole = await raw(`/api/files/${id}`);
   assert.equal(whole.status, 200);
@@ -202,18 +211,36 @@ test('audio and image uploads: type and origin checks, ranges, rename, delete', 
 test('a failed disk write rejects the upload instead of crashing or hanging', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'setlist-files-'));
   const files = createFiles(dir);
-  chmodSync(dir, 0o500); // the file can't be created: the write stream errors while the body is still streaming
+  // The directory vanishes, so the file can't be opened: the write stream errors while the body is still streaming.
+  // (Not a permission trick: CI's Docker build runs the tests as root.)
+  rmSync(dir, { recursive: true });
+  let chunks = 0;
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       await new Promise((r) => setTimeout(r, 20));
       controller.enqueue(new Uint8Array(1000));
-      if (Math.random() < 0.2) controller.close();
+      if (++chunks === 5) controller.close();
     },
   });
-  await assert.rejects(files.save(body, 'mp3', 1_000_000), /EACCES|permission/i);
-  chmodSync(dir, 0o700);
-  assert.deepEqual(readdirSync(dir), []);
-  rmSync(dir, { recursive: true });
+  await assert.rejects(files.save(body, 'audio', 1_000_000), { code: 'ENOENT' });
+});
+
+test('stores what the bytes are, not what the upload claims', () => {
+  const head = (...parts: (string | number[])[]) => new Uint8Array(parts.flatMap((p) => (typeof p === 'string' ? [...p].map((ch) => ch.charCodeAt(0)) : p)));
+  assert.equal(sniff(head('ID3', [4, 0]))?.mime, 'audio/mpeg');
+  assert.equal(sniff(head([0xff, 0xfb, 0x90]))?.mime, 'audio/mpeg');
+  assert.equal(sniff(head([0xff, 0xf1, 0x50]))?.mime, 'audio/aac');
+  assert.equal(sniff(head([0, 0, 0, 0x20], 'ftypM4A '))?.mime, 'audio/mp4');
+  assert.equal(sniff(head('RIFF', [0, 0, 0, 0], 'WAVE'))?.mime, 'audio/wav');
+  assert.equal(sniff(head('OggS', [0]))?.mime, 'audio/ogg');
+  assert.equal(sniff(head('fLaC'))?.mime, 'audio/flac');
+  assert.equal(sniff(head([0x1a, 0x45, 0xdf, 0xa3]))?.mime, 'audio/webm');
+  assert.equal(sniff(head([0xff, 0xd8, 0xff, 0xe0]))?.mime, 'image/jpeg');
+  assert.equal(sniff(head([0x89], 'PNG'))?.mime, 'image/png');
+  assert.equal(sniff(head('GIF89a'))?.mime, 'image/gif');
+  assert.equal(sniff(head('RIFF', [0, 0, 0, 0], 'WEBP'))?.mime, 'image/webp');
+  assert.equal(sniff(head('<html><script>')), null);
+  assert.equal(sniff(head('<svg xmlns')), null);
 });
 
 test('matches covers to the right song, skipping live versions', () => {

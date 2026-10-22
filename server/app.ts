@@ -5,7 +5,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { STATUSES, tx, type Db, type Status } from './db.ts';
 import * as v from './validate.ts';
 import { bestMatch, coverType, isArtUrl, isCoverFile, type Match, type Music } from './music.ts';
-import { MAX_BYTES, TooLarge, uploadType, type FileKind, type Files } from './files.ts';
+import { EmptyUpload, MAX_BYTES, NotMedia, TooLarge, uploadType, type FileKind, type Files } from './files.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -667,22 +667,25 @@ export function createApp(db: Db, config: Config) {
     if (count >= MAX_FILES_PER_SONG) throw new v.BadRequest(`Cada música guarda até ${MAX_FILES_PER_SONG} arquivos. Apague alguns antes de enviar mais.`);
     const body = c.req.raw.body;
     if (!body) throw new v.BadRequest('O arquivo está vazio');
-    let saved: { file: string; size: number };
+    let saved: Awaited<ReturnType<Files['save']>>;
     try {
-      saved = await files.save(body, type.ext, max);
+      saved = await files.save(body, type.kind, max);
     } catch (err) {
       if (err instanceof TooLarge) return c.json({ error: tooBig(type.kind) }, 413);
+      if (err instanceof EmptyUpload) throw new v.BadRequest('O arquivo está vazio');
+      if (err instanceof NotMedia) {
+        return c.json({ error: `Esse arquivo não parece ${type.kind === 'audio' ? 'um áudio' : 'uma imagem'} que dê para tocar ou mostrar aqui.` }, 415);
+      }
       throw err;
     }
-    if (!saved.size || !getSong(song.id)) {
+    if (!getSong(song.id)) {
       files.remove(saved.file);
-      if (!saved.size) throw new v.BadRequest('O arquivo está vazio');
       return c.json({ error: 'Essa música não existe mais' }, 404);
     }
     const id = randomUUID();
     const name = fileName(c.req.query('name') ?? '') || (type.kind === 'audio' ? 'Áudio' : 'Imagem');
     db.prepare('INSERT INTO song_files (id, song_id, kind, name, file, mime, size, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      id, song.id, type.kind, name, saved.file, type.mime, saved.size, me(c), now(),
+      id, song.id, type.kind, name, saved.file, saved.mime, saved.size, me(c), now(),
     );
     log(me(c), 'song.file', { songId: song.id, title: song.title, kind: type.kind, name });
     broadcast(c);
