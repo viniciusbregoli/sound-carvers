@@ -32,6 +32,8 @@ npm test        # server tests
 npm run build   # typecheck + production bundle in dist/
 ```
 
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the typecheck, build and tests on Node 26, and builds the Docker image, for every pull request and every push to `main`.
+
 ## Tutorial video
 
 [`video/`](video/) is a ~1:24 pt-BR walkthrough of the app for the band, made with [Remotion](https://www.remotion.dev).
