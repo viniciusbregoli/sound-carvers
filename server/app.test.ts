@@ -5,13 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from './app.ts';
 import { openDb } from './db.ts';
-import { bestMatch, createMusic, tuningName } from './music.ts';
+import { bestMatch, createMusic, tuningName, unescapeHtml, type Music } from './music.ts';
+import { cleanCifra, ugSheet } from './cifra.ts';
 import { createFiles, sniff } from './files.ts';
 
-function setup() {
+/** `stubs` replace the network lookups in `music`, so tests never leave the machine. */
+function setup(stubs: Partial<Music> = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'setlist-'));
   const db = openDb(dir);
-  const app = createApp(db, { bandPassword: 'correct horse', secureCookies: false, bandName: 'Test', music: createMusic(join(dir, 'covers')), files: createFiles(join(dir, 'files')), enrichOnAdd: false });
+  const app = createApp(db, { bandPassword: 'correct horse', secureCookies: false, bandName: 'Test', music: { ...createMusic(join(dir, 'covers')), ...stubs }, files: createFiles(join(dir, 'files')), enrichOnAdd: false });
   let cookie = '';
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await app.request(path, {
@@ -145,6 +147,69 @@ test('lyrics, chords and tabs: save, list, clear', async () => {
   assert.equal(state.activity.filter((a: { kind: string }) => a.kind === 'song.text').length, 2);
   assert.equal((await call('PUT', `/api/songs/${song}/texts/tab`, { body: 'e|'.repeat(60_000) })).status, 400);
   cleanup();
+});
+
+test('chord lookup fills only an empty sheet and links the version used', async () => {
+  let reply: { text: string; url: string } | null | Error = { text: 'Em7  G\nToday is gonna be the day', url: 'https://tabs.ultimate-guitar.com/tab/oasis/wonderwall-chords-39144' };
+  const { call, cleanup } = setup({
+    chords: async () => {
+      if (reply instanceof Error) throw reply;
+      return reply;
+    },
+  });
+  await call('POST', '/api/login', { password: 'correct horse' });
+  const song = (await call('POST', '/api/songs', { title: 'Wonderwall', artist: 'Oasis' })).body.id;
+
+  assert.deepEqual((await call('POST', `/api/songs/${song}/chords/lookup`, {})).body, { found: true });
+  assert.equal((await call('GET', `/api/songs/${song}/texts`)).body.chords, 'Em7  G\nToday is gonna be the day');
+  const links = () => call('GET', '/api/state').then((r) => r.body.songs[0].links.map((l: { url: string }) => l.url));
+  assert.deepEqual(await links(), ['https://tabs.ultimate-guitar.com/tab/oasis/wonderwall-chords-39144']);
+
+  // The band's own cifra is never replaced, and the link isn't added twice.
+  await call('PUT', `/api/songs/${song}/texts/chords`, { body: 'Our own version' });
+  reply = { text: 'Another version', url: 'https://tabs.ultimate-guitar.com/tab/oasis/wonderwall-chords-1' };
+  assert.deepEqual((await call('POST', `/api/songs/${song}/chords/lookup`, {})).body, { found: false });
+  assert.equal((await call('GET', `/api/songs/${song}/texts`)).body.chords, 'Our own version');
+  assert.equal((await links()).length, 1);
+
+  await call('PUT', `/api/songs/${song}/texts/chords`, { body: '' });
+  reply = null;
+  assert.deepEqual((await call('POST', `/api/songs/${song}/chords/lookup`, {})).body, { found: false });
+  reply = new Error('403 from www.ultimate-guitar.com');
+  assert.equal((await call('POST', `/api/songs/${song}/chords/lookup`, {})).status, 502);
+  assert.equal((await call('GET', `/api/songs/${song}/texts`)).body.chords, '');
+  cleanup();
+});
+
+test('a cifra pasted from Cifra Club is cleaned, fills an empty key and never replaces a sheet', async () => {
+  const { call, cleanup } = setup();
+  await call('POST', '/api/login', { password: 'correct horse' });
+  const song = (await call('POST', '/api/songs', { title: 'Tempo Perdido', artist: 'Legião Urbana' })).body.id;
+  const pasted = '\r\nTom: C (forma dos acordes no tom de C)\r\n\r\n[Intro]\tC  Am7\r\n\r\n\r\n\r\n\u00a0 \u00a0C\u200b \u00a0 \u00a0 Am7  \r\nTodos os dias quando acordo\r\nParte 1 de 2\r\nComposição de Renato Russo.\r\nEssa informação está errada? Nos avise.\r\n';
+  assert.equal((await call('POST', `/api/songs/${song}/chords/import`, { text: pasted })).status, 200);
+  assert.equal(
+    (await call('GET', `/api/songs/${song}/texts`)).body.chords,
+    'Tom: C (forma dos acordes no tom de C)\n\n[Intro] C  Am7\n\n   C     Am7\nTodos os dias quando acordo',
+  );
+  assert.equal((await call('GET', '/api/state')).body.songs[0].key, 'C');
+
+  assert.equal((await call('POST', `/api/songs/${song}/chords/import`, { text: 'Am  F' })).status, 409);
+  assert.equal((await call('GET', `/api/songs/${song}/texts`)).body.chords.startsWith('Tom: C'), true);
+  await call('PUT', `/api/songs/${song}/texts/chords`, { body: '' });
+  assert.equal((await call('POST', `/api/songs/${song}/chords/import`, { text: ' \n\u00a0\n' })).status, 400);
+  cleanup();
+});
+
+test('reads chord sheets from Ultimate Guitar markup and keys from "Tom:" lines', () => {
+  const ug = '[tab]Em7     0-2-2-0-3-3\r\nCadd9   x32033[/tab]\r\n\r\n[Intro]\r\n[ch]Em7[/ch]   [ch]G[/ch]\r\n\r\n[Verse 1]\r\n[tab][ch]Em7[/ch]      [ch]G[/ch]\r\nToday is gonna be the day[/tab]\r\n';
+  assert.equal(ugSheet(ug, 2), 'Capotraste na 2ª casa\n\n[Intro]\nEm7   G\n\n[Verse 1]\nEm7      G\nToday is gonna be the day');
+  assert.equal(ugSheet(ug), '[Intro]\nEm7   G\n\n[Verse 1]\nEm7      G\nToday is gonna be the day');
+  assert.equal(ugSheet('[tab]G  320003[/tab]'), '');
+  assert.equal(unescapeHtml('Legi&atilde;o Urbana &amp; H&aacute; Tempos &#039;&#x41;'), "Legião Urbana & Há Tempos 'A");
+  assert.equal(cleanCifra('Tom: Bb').key, 'B♭');
+  assert.equal(cleanCifra('tom: c#m').key, 'C♯m');
+  assert.equal(cleanCifra('Tom: Am7').key, null);
+  assert.equal(cleanCifra('Atom: heart').key, null);
 });
 
 test('audio and image uploads: type and origin checks, ranges, rename, delete', async () => {
