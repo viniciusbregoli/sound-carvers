@@ -3,6 +3,25 @@ export type Status = (typeof STATUSES)[number];
 
 export type Link = { label: string; url: string };
 
+/** Text sheets a song can have: lyrics, chord sheet (cifra) and tablature. */
+export const TEXT_KINDS = ['lyrics', 'chords', 'tab'] as const;
+export type TextKind = (typeof TEXT_KINDS)[number];
+export type SongTexts = Record<TextKind, string>;
+
+export type FileKind = 'audio' | 'image';
+/** A recording or picture the band uploaded for a song. */
+export type SongFile = {
+  id: string;
+  songId: string;
+  kind: FileKind;
+  name: string;
+  mime: string;
+  size: number;
+  createdBy: string | null;
+  createdAt: number;
+  url: string;
+};
+
 export type Member = { id: string; name: string; instrument: string; color: string; createdAt: number };
 
 export type Song = {
@@ -22,6 +41,8 @@ export type Song = {
   cover: string | null;
   /** Already looked up online (cover, key, tuning, links). */
   enriched: boolean;
+  /** Which text sheets exist, with when each last changed. The bodies load separately, on demand. */
+  texts: Partial<Record<TextKind, number>>;
   lastRehearsed: number | null;
   createdBy: string | null;
   createdAt: number;
@@ -77,6 +98,7 @@ export type BandState = {
   songs: Song[];
   confidence: Confidence[];
   parts: Part[];
+  files: SongFile[];
   setlists: Setlist[];
   activity: Activity[];
 };

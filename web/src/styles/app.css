@@ -978,7 +978,8 @@ input[type='checkbox'] {
   inset-inline-end: 0;
   top: 0;
   padding: var(--space-4);
-  z-index: 1;
+  /* Above the song sheet's sticky tab bar */
+  z-index: 2;
 }
 .dialog-body {
   padding: var(--space-5) var(--space-6) var(--space-6);
@@ -1561,6 +1562,342 @@ fieldset.section > legend {
 .sheet-danger {
   padding-top: var(--space-4);
   border-top: 1px solid var(--border);
+}
+
+/* ================= song tabs: geral, letra, cifra, tab, áudios, imagens ================= */
+
+.song-tabs {
+  position: sticky;
+  top: calc(var(--space-6) * -1);
+  z-index: 1;
+  display: flex;
+  gap: var(--space-1);
+  /* Bleed to the sheet's edges; the end padding keeps the last tab clear of the floating close button */
+  margin: calc(var(--space-3) * -1) calc(var(--space-6) * -1) calc(var(--space-2) * -1);
+  padding: 0 calc(var(--space-4) + 52px) 0 calc(var(--space-6) - var(--space-3));
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--surface-overlay);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+.song-tabs::-webkit-scrollbar {
+  display: none;
+}
+.song-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-height: 46px;
+  padding: 0 var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color var(--dur-fast);
+}
+.song-tab:hover,
+.song-tab[aria-selected='true'] {
+  color: var(--text);
+}
+.song-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  inset-inline: var(--space-3);
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent-solid);
+}
+.song-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -4px;
+  border-radius: var(--radius-sm);
+}
+.song-tab-count {
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-radius: var(--radius-full);
+  padding: 0 6px;
+}
+.song-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent-solid);
+}
+
+.song-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.song-panel.is-compact {
+  gap: var(--space-3);
+}
+.song-panel[hidden] {
+  display: none;
+}
+.sheet-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  min-height: 34px;
+}
+.sheet-toolbar > :first-child:not(:last-child) {
+  margin-inline-end: auto;
+}
+.sheet-empty {
+  padding-block: var(--space-8);
+}
+.sheet-loading {
+  padding-block: var(--space-6);
+}
+
+/* Lyrics and chord sheets: section labels in the accent, chord-only lines highlighted */
+.sheet {
+  font-size: var(--fs-lead);
+  line-height: 1.6;
+}
+.sheet-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sheet-gap {
+  height: 1.1em;
+}
+.sheet-section {
+  margin-top: var(--space-2);
+  margin-bottom: 2px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+.sheet-section:first-child,
+.sheet-gap + .sheet-section {
+  margin-top: 0;
+}
+.sheet-chords {
+  color: var(--accent-text);
+  font-weight: 650;
+}
+.sheet-mono {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  margin: 0;
+}
+.sheet-mono .sheet-line,
+pre.sheet-mono {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.sheet-mono .sheet-section {
+  font-family: var(--font-ui);
+}
+textarea.sheet-editor {
+  min-height: 55dvh;
+  resize: vertical;
+}
+textarea.sheet-editor.is-mono {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  white-space: pre;
+  overflow-x: auto;
+}
+@media (pointer: coarse) {
+  textarea.sheet-editor.is-mono {
+    font-size: 16px;
+  }
+}
+
+/* Audio and images */
+.uploads,
+.audio-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 160px);
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+.upload-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+progress {
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+progress::-webkit-progress-bar {
+  background: var(--surface-3);
+}
+progress::-webkit-progress-value {
+  background: var(--accent-solid);
+  transition: width var(--dur-fast);
+}
+progress::-moz-progress-bar {
+  background: var(--accent-solid);
+}
+.audio-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.audio-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.audio-row-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.audio-row audio {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+.file-name-input {
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 30px !important;
+  padding: 2px var(--space-2) !important;
+  margin-inline-start: calc(var(--space-2) * -1);
+  border-radius: var(--radius-sm) !important;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+.file-name-input:hover {
+  background: var(--surface-2) !important;
+}
+.file-name-input:focus-visible {
+  background: var(--bg-sunken) !important;
+  box-shadow: inset 0 0 0 2px var(--focus-ring) !important;
+}
+.file-meta {
+  font-size: var(--fs-caption);
+  color: var(--text-tertiary);
+}
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-4) var(--space-3);
+}
+.image-grid li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.image-thumb {
+  display: block;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: scale var(--dur-med) var(--ease-out);
+}
+.image-thumb:hover img {
+  scale: 1.04;
+}
+.image-thumb:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.image-caption {
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dialog-center.image-viewer {
+  width: min(1040px, calc(100vw - 16px));
+}
+.image-viewer .dialog-header {
+  padding: var(--space-3) var(--space-3) 0;
+  justify-content: flex-end;
+}
+.image-viewer .dialog-body {
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+.image-viewer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.image-viewer-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+.image-viewer-stage img {
+  max-width: 100%;
+  max-height: calc(100dvh - 200px);
+  object-fit: contain;
+}
+.image-nav {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-full);
+}
+.image-nav:active {
+  scale: 1;
+}
+.image-nav.is-prev {
+  inset-inline-start: var(--space-2);
+}
+.image-nav.is-next {
+  inset-inline-end: var(--space-2);
+}
+.image-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 /* ================= setlists ================= */

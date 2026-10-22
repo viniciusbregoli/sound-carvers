@@ -4,7 +4,7 @@ const LABELS: Record<string, string> = {
   title: 'título', artist: 'artista', name: 'nome', instrument: 'instrumento', color: 'cor', key: 'tom', bpm: 'andamento',
   duration: 'duração', tuning: 'afinação', notes: 'anotações', links: 'links', status: 'coluna', index: 'posição',
   date: 'data', time: 'horário', venue: 'local', kind: 'tipo', level: 'avaliação', text: 'texto', label: 'nome do link',
-  url: 'endereço', memberId: 'integrante', songId: 'música', at: 'data do ensaio', deezerId: 'faixa', role: 'função',
+  url: 'endereço', memberId: 'integrante', songId: 'música', at: 'data do ensaio', deezerId: 'faixa', role: 'função', body: 'texto',
 };
 const label = (key: string) => LABELS[key] ?? key;
 

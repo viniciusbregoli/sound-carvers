@@ -206,6 +206,12 @@ function ActivityRow({ activity: a, member }: { activity: Activity; member?: Mem
     case 'song.deleted':
       text = `excluiu “${d.title}”`;
       break;
+    case 'song.text':
+      text = `adicionou ${{ lyrics: 'a letra', chords: 'a cifra', tab: 'a tablatura' }[d.kind as string] ?? 'uma anotação'} de “${d.title}”`;
+      break;
+    case 'song.file':
+      text = d.kind === 'audio' ? `enviou o áudio “${d.name}” em “${d.title}”` : `enviou uma imagem em “${d.title}”`;
+      break;
     case 'setlist.created':
       text = `criou ${d.kind === 'rehearsal' ? 'o ensaio' : 'o show'} “${d.name}”`;
       break;

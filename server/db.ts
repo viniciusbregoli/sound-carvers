@@ -45,6 +45,26 @@ CREATE TABLE IF NOT EXISTS parts (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (song_id, member_id)
 );
+CREATE TABLE IF NOT EXISTS song_texts (
+  song_id TEXT NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  body TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (song_id, kind)
+);
+CREATE TABLE IF NOT EXISTS song_files (
+  id TEXT PRIMARY KEY,
+  song_id TEXT NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  file TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_by TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS song_files_by_song ON song_files(song_id, created_at);
 CREATE TABLE IF NOT EXISTS setlists (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

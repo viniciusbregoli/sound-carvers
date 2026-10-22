@@ -3,6 +3,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { readFileSync } from 'node:fs';
 import { createApp } from './app.ts';
 import { openDb, snapshot } from './db.ts';
+import { createFiles } from './files.ts';
 import { createMusic } from './music.ts';
 
 const dataDir = process.env.DATA_DIR ?? './data';
@@ -21,6 +22,7 @@ const app = createApp(db, {
   secureCookies: process.env.SECURE_COOKIES !== 'false',
   bandName: process.env.BAND_NAME ?? 'Sound Carvers',
   music: createMusic(`${dataDir}/covers`),
+  files: createFiles(`${dataDir}/files`),
 });
 
 // Hashed build assets never change; the HTML shell always revalidates.
