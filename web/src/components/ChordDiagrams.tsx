@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import guitarUrl from '@tombatossals/chords-db/lib/guitar.json?url';
-import { chordsIn, fitsChord, guitarLookup, noteName, parseChord, pianoVoicing, powerChordShapes, prefersFlats, type Chord, type GuitarShape } from '../lib/chords';
+import { chordsIn, findGuitarShapes, fitsChord, guitarLookup, noteName, parseChord, pianoVoicing, powerChordShapes, prefersFlats, type Chord, type GuitarShape } from '../lib/chords';
 
 type Instrument = 'guitar' | 'piano';
 type GuitarDb = { chords: Record<string, { suffix: string; positions: GuitarShape[] }[]> };
@@ -103,17 +103,29 @@ const notesOf = (chord: Chord) => {
 function GuitarChord({ chord }: { chord: Chord }) {
   const db = useGuitarDb();
   const [index, setIndex] = useState(0);
+  // Power chords are built; otherwise the database's shapes, which are hand-checked, come first. A slash chord it
+  // lacks gets a shape found with that bass; anything still missing gets one found for the plain chord.
   const found = useMemo(() => {
     const built = powerChordShapes(chord);
     if (built.length) return { positions: built, slash: false };
-    if (!db || db === 'error') return null;
+    if (!db) return null;
+    const fromDb = (suffix: string) =>
+      db === 'error' ? [] : (db.chords[key]?.find((c) => c.suffix === suffix)?.positions.filter((p) => fitsChord(chord, p.midi, suffix.includes('/'))) ?? []);
     const { key, suffixes } = guitarLookup(chord);
-    for (const suffix of suffixes) {
-      const slash = suffix.includes('/');
-      const positions = db.chords[key]?.find((c) => c.suffix === suffix)?.positions.filter((p) => fitsChord(chord, p.midi, slash));
-      if (positions?.length) return { positions, slash };
+    const plain = suffixes[suffixes.length - 1];
+    for (const suffix of suffixes.slice(0, -1)) {
+      const positions = fromDb(suffix);
+      if (positions.length) return { positions, slash: true };
     }
-    return null;
+    const hasBass = chord.bass !== null && chord.bass !== chord.root;
+    if (hasBass) {
+      const positions = findGuitarShapes(chord);
+      if (positions.length) return { positions, slash: true };
+    }
+    const positions = fromDb(plain);
+    if (positions.length) return { positions, slash: !hasBass };
+    const searched = findGuitarShapes({ ...chord, bass: null });
+    return searched.length ? { positions: searched, slash: !hasBass } : null;
   }, [db, chord]);
 
   const bassNote = chord.bassName && !found?.slash ? `baixo em ${chord.bassName}` : null;
