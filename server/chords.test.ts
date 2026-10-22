@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { chordsIn, fitsChord, guitarLookup, isChordLine, parseChord, pianoVoicing, QUALITIES } from '../web/src/lib/chords.ts';
+import { chordsIn, fitsChord, guitarLookup, isChordLine, parseChord, pianoVoicing, powerChordShapes, QUALITIES } from '../web/src/lib/chords.ts';
 
 test('reads chord symbols the way cifras write them', () => {
   const q = (s: string) => parseChord(s)?.quality;
@@ -20,6 +20,9 @@ test('reads chord symbols the way cifras write them', () => {
   assert.equal(q('B°'), 'dim');
   assert.equal(q('E♭'), 'major');
   assert.equal(q('Am7M'), 'mmaj7');
+  assert.equal(q('B5(9)'), '5add9');
+  assert.equal(q('Am6(9)'), 'm69');
+  assert.equal(q('C7M(#5)'), 'maj7#5');
   assert.equal(parseChord('Hm'), null);
   assert.equal(parseChord('Dumb'), null);
 
@@ -56,8 +59,8 @@ test('guitar shapes come from the database, minus the ones that play wrong notes
     chords: Record<string, { suffix: string; positions: { midi: number[] }[] }[]>;
   };
   const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-  const symbols = { major: '', minor: 'm', dim: '°', dim7: '°7', aug: '+', sus2: 'sus2', sus4: '4', '7sus4': '7/4', '6': '6', '69': '6/9', '7': '7', '7b5': '7(b5)', aug7: '7(#5)', '9': '7(9)', '7b9': '7(b9)', '7#9': '7(#9)', '11': '7(11)', '13': '7(13)', maj7: '7M', maj9: '7M(9)', add9: '9', m6: 'm6', m7: 'm7', m7b5: 'm7(b5)', m9: 'm7(9)', m11: 'm7(11)', mmaj7: 'm7M', madd9: 'm(9)' } as Record<string, string>;
-  assert.deepEqual(Object.keys(symbols).sort(), Object.keys(QUALITIES).filter((q) => q !== '5').sort(), 'every quality but power chords is checked');
+  const symbols = { major: '', minor: 'm', dim: '°', dim7: '°7', aug: '+', sus2: 'sus2', sus4: '4', '7sus4': '7/4', '6': '6', '69': '6/9', '7': '7', '7b5': '7(b5)', aug7: '7(#5)', '9': '7(9)', '7b9': '7(b9)', '7#9': '7(#9)', '11': '7(11)', '13': '7(13)', maj7: '7M', maj9: '7M(9)', maj13: '7M(13)', 'maj7#5': '7M(#5)', add9: '9', m6: 'm6', m69: 'm6/9', m7: 'm7', m7b5: 'm7(b5)', m9: 'm7(9)', m11: 'm7(11)', mmaj7: 'm7M', madd9: 'm(9)' } as Record<string, string>;
+  assert.deepEqual(Object.keys(symbols).sort(), Object.keys(QUALITIES).filter((q) => q !== '5' && q !== '5add9').sort(), 'every quality but power chords is checked');
   const missing: string[] = [];
   let shown = 0;
   for (const root of names) {
@@ -74,7 +77,7 @@ test('guitar shapes come from the database, minus the ones that play wrong notes
   }
   // Only the database's broken entries go without a diagram (they show their notes instead).
   assert.deepEqual(missing, ['C#7(11)', 'Em(9)']);
-  assert.equal(shown + missing.length, 12 * 32, "12 keys × 28 qualities, plus 2 slash chords each for major and minor");
+  assert.equal(shown + missing.length, 12 * 35, "12 keys × 31 qualities, plus 2 slash chords each for major and minor");
   assert.ok(fitsChord(parseChord('C')!, [48, 52, 55, 60, 64]));
   assert.ok(!fitsChord(parseChord('C')!, [48, 52, 55, 58]), 'a B♭ is not in C major');
   const cOverE = parseChord('C/E')!;
@@ -82,4 +85,26 @@ test('guitar shapes come from the database, minus the ones that play wrong notes
   assert.ok(!fitsChord(cOverE, [48, 52, 55, 60, 64], true), 'a slash shape with C lowest is just C');
   assert.ok(!fitsChord(cOverE, [], true));
   assert.ok(!fitsChord(parseChord('C/B')!, [48, 52, 55, 59]), 'the plain stand-in for C/B leaves the B to the bass');
+});
+
+test('power chords get built shapes, lowest on the neck first', () => {
+  const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  for (const root of names) {
+    for (const suffix of ['5', '5(9)']) {
+      const chord = parseChord(root + suffix)!;
+      const shapes = powerChordShapes(chord);
+      assert.equal(shapes.length, suffix === '5' ? 3 : 2, root + suffix);
+      for (const s of shapes) {
+        assert.ok(fitsChord(chord, s.midi), root + suffix);
+        assert.equal(new Set(s.midi.map((n) => n % 12)).size, chord.intervals.length, `${root + suffix} sounds every chord tone`);
+        assert.ok(Math.max(...s.frets) <= 5, `${root + suffix} fits the 5-fret box`);
+      }
+    }
+  }
+  assert.deepEqual(powerChordShapes(parseChord('E5')!)[0].frets, [0, 2, 2, -1, -1, -1]);
+  assert.deepEqual(powerChordShapes(parseChord('A5')!)[0].frets, [-1, 0, 2, 2, -1, -1]);
+  assert.deepEqual(powerChordShapes(parseChord('D5')!)[0].frets, [-1, -1, 0, 2, 3, -1]);
+  const b9 = powerChordShapes(parseChord('B5(9)')!)[0];
+  assert.deepEqual([b9.frets, b9.baseFret], [[-1, 1, 3, 5, -1, -1], 2], 'B5(9): x-2-4-6, drawn from fret 2');
+  assert.deepEqual(powerChordShapes(parseChord('C')!), []);
 });

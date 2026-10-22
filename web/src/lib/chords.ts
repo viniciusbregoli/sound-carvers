@@ -48,6 +48,7 @@ export const QUALITIES: Record<string, number[]> = {
   major: [0, 4, 7],
   minor: [0, 3, 7],
   '5': [0, 7],
+  '5add9': [0, 7, 14],
   dim: [0, 3, 6],
   dim7: [0, 3, 6, 9],
   aug: [0, 4, 8],
@@ -66,8 +67,11 @@ export const QUALITIES: Record<string, number[]> = {
   '13': [0, 4, 7, 10, 14, 21],
   maj7: [0, 4, 7, 11],
   maj9: [0, 4, 7, 11, 14],
+  maj13: [0, 4, 7, 11, 14, 21],
+  'maj7#5': [0, 4, 8, 11],
   add9: [0, 4, 7, 14],
   m6: [0, 3, 7, 9],
+  m69: [0, 3, 7, 9, 14],
   m7: [0, 3, 7, 10],
   m7b5: [0, 3, 6, 10],
   m9: [0, 3, 7, 10, 14],
@@ -81,7 +85,7 @@ export const QUALITIES: Record<string, number[]> = {
 const ALIASES: Record<string, string> = {
   '': 'major', M: 'major', maj: 'major',
   m: 'minor', min: 'minor', '-': 'minor',
-  '5': '5',
+  '5': '5', '59': '5add9', '5(9)': '5add9', '5add9': '5add9',
   '°': 'dim', o: 'dim', dim: 'dim', '°7': 'dim7', o7: 'dim7', dim7: 'dim7',
   '+': 'aug', aug: 'aug', '5+': 'aug', '#5': 'aug', '+5': 'aug',
   sus: 'sus4', sus4: 'sus4', '4': 'sus4', sus2: 'sus2', '2': 'sus2',
@@ -91,8 +95,10 @@ const ALIASES: Record<string, string> = {
   '79': '9', '7/9': '9', '7(9)': '9', '7b9': '7b9', '7-9': '7b9', '7#9': '7#9', '7+9': '7#9',
   '711': '11', '7(11)': '11', '11': '11', '713': '13', '7(13)': '13', '13': '13',
   '7M': 'maj7', maj7: 'maj7', M7: 'maj7', 'Δ': 'maj7', 'Δ7': 'maj7', '7M9': 'maj9', '7M(9)': 'maj9', maj9: 'maj9',
+  '7M13': 'maj13', '7M(13)': 'maj13', '7M(9)(13)': 'maj13', maj13: 'maj13',
+  '7M#5': 'maj7#5', '7M(#5)': 'maj7#5', '7M+5': 'maj7#5', '7M(+5)': 'maj7#5', 'maj7#5': 'maj7#5',
   '9': 'add9', add9: 'add9', '(9)': 'add9', add2: 'add9',
-  m6: 'm6', m7: 'm7', min7: 'm7', '-7': 'm7',
+  m6: 'm6', m69: 'm69', 'm6/9': 'm69', 'm6(9)': 'm69', m7: 'm7', min7: 'm7', '-7': 'm7',
   m7b5: 'm7b5', 'm7(b5)': 'm7b5', 'm7-5': 'm7b5', ø: 'm7b5', ø7: 'm7b5',
   m79: 'm9', 'm7(9)': 'm9', m711: 'm11', 'm7(11)': 'm11', m11: 'm11',
   m7M: 'mmaj7', mmaj7: 'mmaj7', mM7: 'mmaj7', 'm(7M)': 'mmaj7',
@@ -187,4 +193,36 @@ export function fitsChord(chord: Chord, midi: number[], slashShape = false) {
     allowed.add(chord.bass);
   }
   return midi.every((n) => allowed.has(n % 12));
+}
+
+/** A fingering in the guitar database's format: frets per string from low E (-1 muted, 0 open), relative to `baseFret`. */
+export type GuitarShape = { frets: number[]; fingers: number[]; baseFret: number; barres: number[]; midi: number[] };
+
+// Standard tuning, low E to high E, as MIDI notes.
+const OPEN_STRINGS = [40, 45, 50, 55, 59, 64];
+
+/**
+ * Power chords (A5, B5(9)) aren't in the database: they're one movable shape, so we build it with the root on the low
+ * E, A or D string and the fifth and octave (or ninth) on the next two strings. Lowest on the neck first.
+ */
+export function powerChordShapes(chord: Chord): GuitarShape[] {
+  if (chord.quality !== '5' && chord.quality !== '5add9') return [];
+  const ninth = chord.quality === '5add9';
+  const shapes: (GuitarShape & { fret: number })[] = [];
+  for (const string of ninth ? [0, 1] : [0, 1, 2]) {
+    const root = (chord.root - (OPEN_STRINGS[string] % 12) + 12) % 12;
+    // The G-to-B string is a third, not a fourth, so the octave from the D string sits one fret further up.
+    const top = root + (ninth ? 4 : string === 2 ? 3 : 2);
+    const played = [root, root + 2, top];
+    const fingers = root === 0 ? [0, 1, ninth ? 3 : 2] : ninth ? [1, 2, 4] : [1, 3, 4];
+    const baseFret = top <= 4 ? 1 : root;
+    const frets = [-1, -1, -1, -1, -1, -1];
+    const fingerList = [0, 0, 0, 0, 0, 0];
+    played.forEach((f, i) => {
+      frets[string + i] = baseFret === 1 ? f : f - baseFret + 1;
+      fingerList[string + i] = fingers[i];
+    });
+    shapes.push({ frets, fingers: fingerList, baseFret, barres: [], midi: played.map((f, i) => OPEN_STRINGS[string + i] + f), fret: root });
+  }
+  return shapes.sort((a, b) => a.fret - b.fret).map(({ fret: _, ...shape }) => shape);
 }

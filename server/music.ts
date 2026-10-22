@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ugSheet } from './cifra.ts';
+import { ugSheet, unescapeHtml } from './cifra.ts';
 
 /** A track found on Deezer (or iTunes as a fallback), shaped for the add-song autocomplete. */
 export type Match = {
@@ -247,16 +247,6 @@ async function ugStore(url: string): Promise<any> {
 
 // Only sheet pages are fetched, never whatever URL a search result claims.
 const isUgTabUrl = (raw: unknown): raw is string => typeof raw === 'string' && /^https:\/\/tabs\.ultimate-guitar\.com\/tab\/[^?#]+$/.test(raw);
-
-const ENTITIES: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' };
-const ACCENTS: Record<string, string> = { acute: '\u0301', grave: '\u0300', circ: '\u0302', tilde: '\u0303', uml: '\u0308', cedil: '\u0327', ring: '\u030a' };
-/** HTML entities, including the accented letters (`&atilde;`) that UG's song and artist names come with. */
-export const unescapeHtml = (s: string) =>
-  s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
-    if (e[0] === '#') return String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1)));
-    const accent = /^([a-z])(acute|grave|circ|tilde|uml|cedil|ring)$/i.exec(e);
-    return accent ? (accent[1] + ACCENTS[accent[2]]).normalize('NFC') : (ENTITIES[e] ?? m);
-  });
 
 const norm = (s: string) =>
   s

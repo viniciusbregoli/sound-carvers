@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from './app.ts';
 import { openDb } from './db.ts';
-import { bestMatch, createMusic, tuningName, unescapeHtml, type Music } from './music.ts';
-import { cleanCifra, ugSheet } from './cifra.ts';
+import { bestMatch, createMusic, tuningName, type Music } from './music.ts';
+import { cleanCifra, ugSheet, unescapeHtml } from './cifra.ts';
 import { createFiles, sniff } from './files.ts';
 
 /** `stubs` replace the network lookups in `music`, so tests never leave the machine. */
@@ -205,6 +205,7 @@ test('reads chord sheets from Ultimate Guitar markup and keys from "Tom:" lines'
   assert.equal(ugSheet(ug, 2), 'Capotraste na 2ª casa\n\n[Intro]\nEm7   G\n\n[Verse 1]\nEm7      G\nToday is gonna be the day');
   assert.equal(ugSheet(ug), '[Intro]\nEm7   G\n\n[Verse 1]\nEm7      G\nToday is gonna be the day');
   assert.equal(ugSheet('[tab]G  320003[/tab]'), '');
+  assert.equal(ugSheet('Capotraste na 1&ordf; casa\nDaddy&rsquo;s &amp; me', 1), 'Capotraste na 1ª casa\nDaddy’s & me', 'decoded, and no second capo line');
   assert.equal(unescapeHtml('Legi&atilde;o Urbana &amp; H&aacute; Tempos &#039;&#x41;'), "Legião Urbana & Há Tempos 'A");
   assert.equal(cleanCifra('Tom: Bb').key, 'B♭');
   assert.equal(cleanCifra('tom: c#m').key, 'C♯m');
