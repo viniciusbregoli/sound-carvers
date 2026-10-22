@@ -176,10 +176,15 @@ export function guitarLookup(chord: Chord): { key: string; suffixes: string[] } 
 /**
  * Whether a fingering (as MIDI notes) only sounds notes of the chord: the database has a few wrong shapes, and we'd
  * rather show none than teach the band a wrong one. Thirteenth chords may keep the eleventh, as guitar voicings do.
+ * A slash shape must also put the bass note lowest; a plain shape standing in for a slash chord is checked as the
+ * plain chord (the card then says which bass to add).
  */
-export function fitsChord(chord: Chord, midi: number[]) {
+export function fitsChord(chord: Chord, midi: number[], slashShape = false) {
   const allowed = new Set(chord.intervals.map((i) => (chord.root + i) % 12));
-  if (chord.bass !== null) allowed.add(chord.bass);
   if (chord.quality === '13') allowed.add((chord.root + 5) % 12);
+  if (slashShape) {
+    if (chord.bass === null || !midi.length || Math.min(...midi) % 12 !== chord.bass) return false;
+    allowed.add(chord.bass);
+  }
   return midi.every((n) => allowed.has(n % 12));
 }

@@ -66,7 +66,7 @@ test('guitar shapes come from the database, minus the ones that play wrong notes
         const chord = parseChord(root + suffix + bass)!;
         assert.equal(chord.quality, quality, root + suffix);
         const { key, suffixes } = guitarLookup(chord);
-        const positions = suffixes.map((s) => db.chords[key]?.find((c) => c.suffix === s)?.positions.filter((p) => fitsChord(chord, p.midi))).find((p) => p?.length);
+        const positions = suffixes.map((s) => db.chords[key]?.find((c) => c.suffix === s)?.positions.filter((p) => fitsChord(chord, p.midi, s.includes('/')))).find((p) => p?.length);
         if (positions) shown++;
         else missing.push(chord.symbol);
       }
@@ -77,4 +77,9 @@ test('guitar shapes come from the database, minus the ones that play wrong notes
   assert.equal(shown + missing.length, 12 * 32, "12 keys × 28 qualities, plus 2 slash chords each for major and minor");
   assert.ok(fitsChord(parseChord('C')!, [48, 52, 55, 60, 64]));
   assert.ok(!fitsChord(parseChord('C')!, [48, 52, 55, 58]), 'a B♭ is not in C major');
+  const cOverE = parseChord('C/E')!;
+  assert.ok(fitsChord(cOverE, [52, 55, 60, 64], true), 'C/E with E lowest');
+  assert.ok(!fitsChord(cOverE, [48, 52, 55, 60, 64], true), 'a slash shape with C lowest is just C');
+  assert.ok(!fitsChord(cOverE, [], true));
+  assert.ok(!fitsChord(parseChord('C/B')!, [48, 52, 55, 59]), 'the plain stand-in for C/B leaves the B to the bass');
 });

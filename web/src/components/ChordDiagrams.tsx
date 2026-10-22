@@ -108,8 +108,9 @@ function GuitarChord({ chord }: { chord: Chord }) {
     if (!db || db === 'error') return null;
     const { key, suffixes } = guitarLookup(chord);
     for (const suffix of suffixes) {
-      const positions = db.chords[key]?.find((c) => c.suffix === suffix)?.positions.filter((p) => fitsChord(chord, p.midi));
-      if (positions?.length) return { positions, slash: suffix.includes('/') };
+      const slash = suffix.includes('/');
+      const positions = db.chords[key]?.find((c) => c.suffix === suffix)?.positions.filter((p) => fitsChord(chord, p.midi, slash));
+      if (positions?.length) return { positions, slash };
     }
     return null;
   }, [db, chord]);
