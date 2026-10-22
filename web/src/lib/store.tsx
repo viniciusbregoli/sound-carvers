@@ -30,6 +30,8 @@ type Store = {
   saveText: (songId: string, kind: TextKind, body: string) => Promise<number | null>;
   /** Fills empty lyrics from the internet; resolves false when nothing was found. */
   lookupLyrics: (songId: string) => Promise<boolean>;
+  lookupChords: (songId: string) => Promise<boolean>;
+  importChords: (songId: string, text: string) => Promise<void>;
   uploadFile: (songId: string, file: Blob, type: string, name: string, onProgress?: (fraction: number) => void) => Promise<void>;
   renameFile: (id: string, name: string) => Promise<void>;
   deleteFile: (id: string) => Promise<void>;
@@ -230,6 +232,8 @@ export function BandProvider({ initial, memberId, children }: { initial: BandSta
         }
       },
       lookupLyrics: (songId) => withRefresh(() => api<{ found: boolean }>('POST', `/api/songs/${songId}/lyrics/lookup`).then((r) => r.found)),
+      lookupChords: (songId) => withRefresh(() => api<{ found: boolean }>('POST', `/api/songs/${songId}/chords/lookup`).then((r) => r.found)),
+      importChords: (songId, text) => withRefresh(() => api('POST', `/api/songs/${songId}/chords/import`, { text }).then(() => undefined)),
       uploadFile: (songId, file, type, name, onProgress) =>
         withRefresh(() => upload(`/api/songs/${songId}/files?name=${encodeURIComponent(name)}`, file, type, onProgress).then(() => undefined)),
       renameFile: (id, name) =>
