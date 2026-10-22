@@ -16,6 +16,10 @@ Taken from a local copy with the demo data in [`video/capture/demo-data`](video/
 |---|---|
 | ![Setlist editor for a show: songs in order, a set break, a note, retune warnings and the song picker](assets/screenshot-setlist.png) | ![Stage mode: the current song in large type with key, BPM, length, each member's part and the next song](assets/screenshot-stage.png) |
 
+Dragging a song from *Aprendendo* to *Quase lá*:
+
+![A song card dragged from the Aprendendo column and dropped into Quase lá](assets/demo-drag.gif)
+
 ## What it does
 
 - **Song search with album art.** Typing a song in quick-add or *Adicionar música* suggests matches from Deezer (iTunes as a fallback); picking one stores the cover locally and fills in length and, when Deezer knows it, BPM. Every new song (typed or picked) is then looked up in the background to fill **only empty fields**: key (Spotify's audio analysis via ReccoBeats, matched by the Deezer ISRC), tuning (most-viewed guitar tab on Songsterr), tempo, and links to Spotify, Cifra Club, Songsterr and a YouTube search. *Completar capas, tom e links* does the same for older songs; the song sheet has a per-song button and lets you pick a different cover. Cards are tinted with the cover's color; songs without art get a generated tile.
