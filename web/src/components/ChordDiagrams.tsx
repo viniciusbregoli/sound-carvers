@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import guitarUrl from '@tombatossals/chords-db/lib/guitar.json?url';
-import { chordsIn, fitsChord, guitarLookup, noteName, parseChord, pianoVoicing, prefersFlats, type Chord } from '../lib/chords';
+import { chordsIn, fitsChord, guitarLookup, noteName, parseChord, pianoVoicing, powerChordShapes, prefersFlats, type Chord, type GuitarShape } from '../lib/chords';
 
 type Instrument = 'guitar' | 'piano';
-type Position = { frets: number[]; fingers: number[]; baseFret: number; barres: number[]; midi: number[] };
-type GuitarDb = { chords: Record<string, { suffix: string; positions: Position[] }[]> };
+type GuitarDb = { chords: Record<string, { suffix: string; positions: GuitarShape[] }[]> };
 
 const INSTRUMENT_KEY = 'sc-chord-instrument';
 const OPEN_KEY = 'sc-chords-open';
@@ -105,6 +104,8 @@ function GuitarChord({ chord }: { chord: Chord }) {
   const db = useGuitarDb();
   const [index, setIndex] = useState(0);
   const found = useMemo(() => {
+    const built = powerChordShapes(chord);
+    if (built.length) return { positions: built, slash: false };
     if (!db || db === 'error') return null;
     const { key, suffixes } = guitarLookup(chord);
     for (const suffix of suffixes) {
@@ -160,7 +161,7 @@ const STRING_X = (s: number) => 16 + s * 12;
 const FRET_Y = (f: number) => 22 + f * 14;
 
 /** A chord box: low E on the left, 5 frets, dots with finger numbers, barres, × for muted and ○ for open strings. */
-function GuitarSvg({ position: p }: { position: Position }) {
+function GuitarSvg({ position: p }: { position: GuitarShape }) {
   return (
     <svg viewBox="0 0 88 96" className="guitar-svg" aria-hidden>
       {p.baseFret > 1 ? (
