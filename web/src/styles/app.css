@@ -3212,3 +3212,13 @@ progress::-moz-progress-bar {
 .stage-parts li.is-default .stage-part-role {
   color: var(--stage-faint);
 }
+
+/* Pasting a cifra from Cifra Club */
+.paste-source {
+  align-self: flex-start;
+  margin-block: var(--space-2);
+}
+textarea.paste-cifra {
+  min-height: 40dvh;
+  width: 100%;
+}

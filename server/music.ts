@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ugSheet } from './cifra.ts';
 
 /** A track found on Deezer (or iTunes as a fallback), shaped for the add-song autocomplete. */
 export type Match = {
@@ -208,8 +209,54 @@ export function createMusic(coversDir: string) {
     return candidates[0]?.plainLyrics?.trim() ?? null;
   }
 
-  return { lookup, fetchImage, saveCover, removeCover, details, lyrics, coversDir };
+  /**
+   * The most-voted "Chords" version of a song on Ultimate Guitar, as a plain sheet. Their pages carry the data as JSON
+   * in a `js-store` element; we read the search page and then the one sheet we pick.
+   */
+  async function chords(title: string, artist: string): Promise<{ text: string; url: string } | null> {
+    const search = await ugStore(`https://www.ultimate-guitar.com/search.php?search_type=title&value=${encodeURIComponent(`${title} ${artist}`.trim())}`);
+    const results = (search?.store?.page?.data?.results ?? []) as UgResult[];
+    const best = results
+      .filter((r): r is UgResult & { tab_url: string } => r.type === 'Chords' && isUgTabUrl(r.tab_url) && sameSong(unescapeHtml(r.song_name ?? ''), unescapeHtml(r.artist_name ?? ''), title, artist))
+      .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))[0];
+    if (!best) return null;
+    const tab = (await ugStore(best.tab_url))?.store?.page?.data?.tab_view;
+    const content = tab?.wiki_tab?.content;
+    if (typeof content !== 'string') return null;
+    const text = ugSheet(content, Number(tab?.meta?.capo) || 0);
+    return text ? { text, url: best.tab_url } : null;
+  }
+
+  return { lookup, fetchImage, saveCover, removeCover, details, lyrics, chords, coversDir };
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ugStore(url: string): Promise<any> {
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(8000),
+    redirect: 'error',
+    headers: { accept: 'text/html', 'user-agent': 'SoundCarversSetlist/1.0' },
+  });
+  if (!res.ok) throw new Error(`${res.status} from ${new URL(url).hostname}`);
+  const html = await res.text();
+  if (html.length > 5_000_000) throw new Error(`page too large on ${new URL(url).hostname}`);
+  const store = /class="js-store" data-content="([^"]*)"/.exec(html);
+  if (!store) throw new Error(`no data on ${new URL(url).hostname} (page changed or blocked)`);
+  return JSON.parse(unescapeHtml(store[1]));
+}
+
+// Only sheet pages are fetched, never whatever URL a search result claims.
+const isUgTabUrl = (raw: unknown): raw is string => typeof raw === 'string' && /^https:\/\/tabs\.ultimate-guitar\.com\/tab\/[^?#]+$/.test(raw);
+
+const ENTITIES: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' };
+const ACCENTS: Record<string, string> = { acute: '\u0301', grave: '\u0300', circ: '\u0302', tilde: '\u0303', uml: '\u0308', cedil: '\u0327', ring: '\u030a' };
+/** HTML entities, including the accented letters (`&atilde;`) that UG's song and artist names come with. */
+export const unescapeHtml = (s: string) =>
+  s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+    if (e[0] === '#') return String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1)));
+    const accent = /^([a-z])(acute|grave|circ|tilde|uml|cedil|ring)$/i.exec(e);
+    return accent ? (accent[1] + ACCENTS[accent[2]]).normalize('NFC') : (ENTITIES[e] ?? m);
+  });
 
 const norm = (s: string) =>
   s
@@ -229,6 +276,7 @@ export function bestMatch(matches: Match[], title: string, artist: string): Matc
 
 export type Details = { bpm: number | null; key: string | null; tuning: string | null; links: { label: string; url: string }[] };
 type LrclibTrack = { trackName: string; artistName: string; duration?: number; instrumental?: boolean; plainLyrics?: string | null };
+type UgResult = { type?: string; song_name?: string; artist_name?: string; votes?: number; tab_url?: unknown };
 type SongsterrSong = { songId: number; title: string; artist: string; tracks?: { instrument: string; views?: number; tuning: number[] }[] };
 
 const slug = (s: string) => norm(s).replace(/ /g, '-');

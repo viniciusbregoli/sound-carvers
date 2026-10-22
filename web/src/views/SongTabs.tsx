@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Pencil, Search, Trash2, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardPaste, Download, ExternalLink, Pencil, Search, Trash2, Upload } from 'lucide-react';
 import { ConfirmDialog, Dialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
@@ -150,13 +150,14 @@ export function TextPanel({
   failed: boolean;
   onSaved: (kind: TextKind, body: string, updatedAt: number | null) => void;
 }) {
-  const { saveText, lookupLyrics } = useBand();
+  const { saveText, lookupLyrics, lookupChords } = useBand();
   const toast = useToast();
   const copy = TEXT_COPY[kind];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [searching, setSearching] = useState(false);
+  const [pasting, setPasting] = useState(false);
   const latest = useRef('');
   const dirty = useRef(false);
   const timer = useRef<number>(undefined);
@@ -213,7 +214,11 @@ export function TextPanel({
   const search = async () => {
     setSearching(true);
     try {
-      if (!(await lookupLyrics(song.id))) toast.info('Não achamos a letra dessa música. Cole ou escreva a letra.');
+      if (kind === 'chords') {
+        if (!(await lookupChords(song.id))) toast.info('Não achamos a cifra no Ultimate Guitar. Cole do Cifra Club ou escreva a cifra.');
+      } else if (!(await lookupLyrics(song.id))) {
+        toast.info('Não achamos a letra dessa música. Cole ou escreva a letra.');
+      }
     } catch {
       // Store showed the error.
     } finally {
@@ -279,13 +284,20 @@ export function TextPanel({
             <Pencil size={16} aria-hidden />
             {copy.write}
           </button>
-          {kind === 'lyrics' && !song.original && (
+          {kind !== 'tab' && !song.original && (
             <button type="button" className="btn btn-ghost" onClick={() => void search()} disabled={searching}>
               <Search size={16} aria-hidden />
               {searching ? 'Buscando…' : 'Buscar na internet'}
             </button>
           )}
+          {kind === 'chords' && !song.original && (
+            <button type="button" className="btn btn-ghost" onClick={() => setPasting(true)}>
+              <ClipboardPaste size={16} aria-hidden />
+              Colar do Cifra Club
+            </button>
+          )}
         </div>
+        {kind === 'chords' && <PasteCifraDialog song={song} open={pasting} onClose={() => setPasting(false)} />}
       </div>,
     );
   }
@@ -302,6 +314,76 @@ export function TextPanel({
     </>,
   );
 }
+
+/** Paste a whole Cifra Club page's sheet; the server tidies it into our format. */
+function PasteCifraDialog({ song, open, onClose }: { song: Song; open: boolean; onClose: () => void }) {
+  const { importChords } = useBand();
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const cifraClub = song.links.find((l) => /(^|\.)cifraclub\.com\.br$/.test(hostOf(l.url)))?.url;
+
+  const submit = async () => {
+    setSending(true);
+    try {
+      await importChords(song.id, text);
+      setText('');
+      onClose();
+    } catch {
+      // Store showed the error.
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Colar do Cifra Club"
+      footer={
+        <>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={!text.trim() || sending}>
+            {sending ? 'Importando…' : 'Importar cifra'}
+          </button>
+        </>
+      }
+    >
+      <p className="muted">
+        Selecione a cifra inteira no Cifra Club, copie e cole aqui. A gente arruma o espaçamento, tira o que sobrou da página e usa o “Tom:” se a
+        música ainda não tiver tom.
+      </p>
+      {cifraClub && (
+        <a className="btn btn-ghost btn-sm paste-source" href={cifraClub} target="_blank" rel="noreferrer">
+          <ExternalLink size={16} aria-hidden />
+          Abrir no Cifra Club
+        </a>
+      )}
+      <label htmlFor="paste-cifra" className="visually-hidden">
+        Cifra copiada
+      </label>
+      <textarea
+        id="paste-cifra"
+        className="sheet-editor is-mono paste-cifra"
+        wrap="off"
+        spellCheck={false}
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+    </Dialog>
+  );
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+};
 
 // A chord: root, accidental, quality, extensions like 7M, m7(b5), sus4, add9, and an optional bass note.
 const CHORD = /^\(?[A-G][#b♯♭]?(?:maj|min|m|M|dim|aug|sus|add|°|ø|\+|-)?(?:\d+|maj|M|add|sus|[#b♯♭+-]|\([^)\s]*\))*(?:\/[A-G][#b♯♭]?)?\)?$/;

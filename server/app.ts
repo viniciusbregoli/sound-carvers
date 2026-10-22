@@ -5,6 +5,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { STATUSES, tx, type Db, type Status } from './db.ts';
 import * as v from './validate.ts';
 import { bestMatch, coverType, isArtUrl, isCoverFile, type Match, type Music } from './music.ts';
+import { cleanCifra } from './cifra.ts';
 import { MAX_BYTES, TooLarge, uploadType, type FileKind, type Files } from './files.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -651,6 +652,44 @@ export function createApp(db: Db, config: Config) {
     writeText(song, 'lyrics', found, me(c));
     broadcast(c);
     return c.json({ found: true });
+  });
+
+  const hasText = (song: SongRow, kind: TextKind) => !!db.prepare('SELECT 1 FROM song_texts WHERE song_id = ? AND kind = ?').get(song.id, kind);
+
+  /** Fills an empty chord sheet from Ultimate Guitar and links the version used. Never replaces a cifra the band already has. */
+  app.post('/api/songs/:id/chords/lookup', async (c) => {
+    const song = getSong(c.req.param('id'));
+    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    let found: { text: string; url: string } | null;
+    try {
+      found = await music.chords(song.title, song.artist);
+    } catch (err) {
+      console.warn('chords lookup failed:', (err as Error).message);
+      return c.json({ error: 'A busca de cifras está fora do ar agora. Tente mais tarde ou cole a cifra.' }, 502);
+    }
+    const current = getSong(song.id);
+    if (!current || !found || found.text.length > TEXT_MAX.chords || hasText(current, 'chords')) return c.json({ found: false });
+    writeText(current, 'chords', found.text, me(c));
+    const links = JSON.parse(current.links) as v.Link[];
+    if (links.length < 12 && !links.some((l) => l.url.includes('ultimate-guitar.com'))) {
+      db.prepare('UPDATE songs SET links = ?, updated_at = ? WHERE id = ?').run(JSON.stringify([...links, { label: '', url: found.url }]), now(), song.id);
+    }
+    broadcast(c);
+    return c.json({ found: true });
+  });
+
+  /** A cifra pasted from Cifra Club (or anywhere), cleaned up; its "Tom:" fills an empty key. Only into an empty sheet. */
+  app.post('/api/songs/:id/chords/import', async (c) => {
+    const song = getSong(c.req.param('id'));
+    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    const { text, key } = cleanCifra(v.text(v.obj(await c.req.json()), 'text', TEXT_MAX.chords * 2) ?? '');
+    if (!text) return c.json({ error: 'Cole a cifra antes de importar.' }, 400);
+    if (text.length > TEXT_MAX.chords) return c.json({ error: 'Essa cifra é grande demais.' }, 400);
+    if (hasText(song, 'chords')) return c.json({ error: 'Essa música já tem cifra. Edite a que está lá.' }, 409);
+    writeText(song, 'chords', text, me(c));
+    if (key) db.prepare(`UPDATE songs SET song_key = ?, updated_at = ? WHERE id = ? AND song_key = ''`).run(key, now(), song.id);
+    broadcast(c);
+    return c.json({ ok: true });
   });
 
   // ---- audio and images ----
