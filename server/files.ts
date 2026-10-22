@@ -50,13 +50,21 @@ export function createFiles(dir: string) {
     const file = `${randomUUID()}.${ext}`;
     const path = pathOf(file);
     const out = createWriteStream(path, { flags: 'wx' });
+    // A write error (disk full…) can fire while we wait for the next chunk, when nothing else is listening;
+    // unhandled, it would crash the process. Keep it and throw it at the next step instead.
+    let failure: Error | undefined;
+    out.on('error', (err) => {
+      failure = err;
+    });
     let size = 0;
     try {
       for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+        if (failure) throw failure;
         size += chunk.byteLength;
         if (size > max) throw new TooLarge();
         if (!out.write(chunk)) await once(out, 'drain');
       }
+      if (failure) throw failure;
       out.end();
       await once(out, 'finish');
     } catch (err) {

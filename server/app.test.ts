@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from './app.ts';
@@ -197,6 +197,23 @@ test('audio and image uploads: type and origin checks, ranges, rename, delete', 
   assert.equal((await call('GET', '/api/state')).body.files.length, 0);
   assert.ok(existsSync(join(dir, 'files')));
   cleanup();
+});
+
+test('a failed disk write rejects the upload instead of crashing or hanging', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'setlist-files-'));
+  const files = createFiles(dir);
+  chmodSync(dir, 0o500); // the file can't be created: the write stream errors while the body is still streaming
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      await new Promise((r) => setTimeout(r, 20));
+      controller.enqueue(new Uint8Array(1000));
+      if (Math.random() < 0.2) controller.close();
+    },
+  });
+  await assert.rejects(files.save(body, 'mp3', 1_000_000), /EACCES|permission/i);
+  chmodSync(dir, 0o700);
+  assert.deepEqual(readdirSync(dir), []);
+  rmSync(dir, { recursive: true });
 });
 
 test('matches covers to the right song, skipping live versions', () => {

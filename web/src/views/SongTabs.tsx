@@ -162,18 +162,30 @@ export function TextPanel({
   const timer = useRef<number>(undefined);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
+  const inFlight = useRef<Promise<void> | null>(null);
+
+  /** One save at a time: waits for the one running, then sends whatever changed meanwhile. */
   const flush = async () => {
     window.clearTimeout(timer.current);
+    while (inFlight.current) await inFlight.current;
     if (!dirty.current) return;
     dirty.current = false;
     const body = latest.current;
     setSaveState('saving');
+    const run = (async () => {
+      try {
+        onSaved(kind, body, await saveText(song.id, kind, body));
+        setSaveState('saved');
+      } catch {
+        dirty.current = true;
+        setSaveState('error');
+      }
+    })();
+    inFlight.current = run;
     try {
-      onSaved(kind, body, await saveText(song.id, kind, body));
-      setSaveState('saved');
-    } catch {
-      dirty.current = true;
-      setSaveState('error');
+      await run;
+    } finally {
+      inFlight.current = null;
     }
   };
   // Save whatever is pending when the tab or the sheet closes.
@@ -191,6 +203,8 @@ export function TextPanel({
     if (editing) textarea.current?.focus({ preventScroll: true });
   }, [editing]);
 
+  // Tapping "Pronto" blurs the textarea first, which already started a save; flush waits for it, so a failed save
+  // keeps the editor (and the error) open instead of closing over text that never reached the server.
   const done = async () => {
     await flush();
     if (!dirty.current) setEditing(false);
