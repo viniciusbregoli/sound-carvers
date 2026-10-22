@@ -1722,6 +1722,147 @@ textarea.sheet-editor.is-mono {
   }
 }
 
+/* Chord diagrams above lyrics and chord sheets: guitar boxes or piano keyboards */
+.chord-diagrams {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.chord-diagrams > summary {
+  margin: 0;
+}
+.chord-diagrams-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.chord-instrument {
+  align-self: flex-start;
+}
+.chord-instrument .segment {
+  padding: 0 var(--space-4);
+}
+.chord-list {
+  display: grid;
+  gap: var(--space-3) var(--space-2);
+}
+.chord-list.is-guitar {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+}
+.chord-list.is-piano {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.chord-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+.chord-card figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  line-height: 1.3;
+}
+.chord-name {
+  font-weight: 700;
+  color: var(--accent-text);
+}
+.chord-notes {
+  font-size: var(--fs-caption);
+  color: var(--text-tertiary);
+}
+.chord-shape {
+  display: block;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+}
+.chord-shape:not(:disabled) {
+  cursor: pointer;
+}
+.chord-shape:not(:disabled):hover {
+  background: var(--surface-2);
+}
+.chord-shape:disabled {
+  opacity: 1;
+}
+.chord-shape:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.chord-shape.is-empty {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 88px;
+  background: var(--surface-2);
+  color: var(--text-tertiary);
+  font-size: var(--fs-title-sm);
+}
+.guitar-svg {
+  display: block;
+  width: 82px;
+  height: auto;
+  overflow: visible;
+}
+.svg-string,
+.svg-fret {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.svg-nut {
+  stroke: var(--text);
+  stroke-width: 3;
+}
+.svg-dot {
+  fill: var(--text);
+}
+.svg-finger {
+  fill: var(--surface);
+  font: 700 7px var(--font-ui);
+  text-anchor: middle;
+}
+.svg-marker {
+  fill: var(--text-secondary);
+  font: 8px var(--font-ui);
+  text-anchor: middle;
+}
+.svg-fret-label {
+  fill: var(--text-secondary);
+  font: 600 8px var(--font-ui);
+  text-anchor: end;
+}
+.piano-svg {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+}
+.key-white {
+  fill: oklch(0.985 0.003 70);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.key-black {
+  fill: oklch(0.24 0.01 60);
+}
+.key-white.is-on,
+.key-black.is-on {
+  fill: var(--accent-solid);
+}
+/* The bass of a slash chord (G/B) gets its own colour */
+.key-white.is-bass,
+.key-black.is-bass {
+  fill: oklch(0.62 0.13 250);
+}
+
 /* Audio and images */
 .uploads,
 .audio-list {

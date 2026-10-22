@@ -5,6 +5,8 @@ import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
 import { useBand } from '../lib/store';
 import { plural } from '../lib/format';
+import { isChordLine } from '../lib/chords';
+import { ChordDiagrams } from '../components/ChordDiagrams';
 import type { FileKind, Song, SongFile, SongTexts, TextKind } from '../lib/types';
 
 export type SongTab = 'overview' | TextKind | FileKind;
@@ -310,6 +312,7 @@ export function TextPanel({
           Editar
         </button>
       </div>
+      {kind !== 'tab' && <ChordDiagrams text={value} tuning={song.tuning} />}
       <SheetView kind={kind} text={value} />
     </>,
   );
@@ -384,18 +387,6 @@ const hostOf = (url: string) => {
     return '';
   }
 };
-
-// A chord: root, accidental, quality, extensions like 7M, m7(b5), sus4, add9, and an optional bass note.
-// One digit per repetition: `\d+` inside the outer `*` backtracks exponentially on a long digit run that then fails.
-const CHORD = /^\(?[A-G][#b♯♭]?(?:maj|min|m|M|dim|aug|sus|add|°|ø|\+|-)?(?:\d|maj|M|add|sus|[#b♯♭+-]|\([^)\s]*\))*(?:\/[A-G][#b♯♭]?)?\)?$/;
-// Bar lines, dashes and repeat marks that sit between chords.
-const FILLER = /^(?:\|+:?|:\|+|-+|–|—|x\d+|\d+x|\(\d*x\d*\)|%|\.{2,}|\/)$/i;
-
-/** True for lines made only of chords (and bar lines, dashes, repeat marks). */
-export function isChordLine(line: string) {
-  const tokens = line.trim().split(/\s+/).filter(Boolean);
-  return tokens.some((t) => CHORD.test(t)) && tokens.every((t) => CHORD.test(t) || FILLER.test(t));
-}
 
 const SECTION = /^\s*\[([^\]]{1,40})\]\s*(.*)$/;
 
