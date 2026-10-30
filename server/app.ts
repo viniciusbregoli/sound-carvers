@@ -7,6 +7,7 @@ import * as v from './validate.ts';
 import { bestMatch, coverType, isArtUrl, isCoverFile, type Match, type Music } from './music.ts';
 import { cleanCifra } from './cifra.ts';
 import { EmptyUpload, MAX_BYTES, NotMedia, TooLarge, uploadType, type FileKind, type Files } from './files.ts';
+import { mountMcp } from './mcp.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -22,6 +23,8 @@ export type Config = {
   files: Files;
   /** Look new songs up online in the background (off in tests). */
   enrichOnAdd?: boolean;
+  /** File holding the Bearer token for the MCP endpoint at /mcp; without it there is no /mcp. */
+  mcpTokenFile?: string;
 };
 
 type Vars = { session: { tokenHash: string; memberId: string | null } };
@@ -57,7 +60,7 @@ function clientIp(c: Context) {
   return 'local';
 }
 
-type SongRow = {
+export type SongRow = {
   id: string; title: string; artist: string; original: number; status: Status; position: number;
   song_key: string; bpm: number | null; duration: number | null; tuning: string; notes: string; links: string;
   last_rehearsed: number | null; created_by: string | null; created_at: number; updated_at: number; cover: string | null;
@@ -131,7 +134,7 @@ export function createApp(db: Db, config: Config) {
   const getSong = (id: string) => db.prepare('SELECT * FROM songs WHERE id = ?').get(id) as SongRow | undefined;
 
   app.onError((err, c) => {
-    if (err instanceof v.BadRequest) return c.json({ error: err.message }, 400);
+    if (err instanceof v.HttpError) return c.json({ error: err.message }, err.status);
     if (err instanceof SyntaxError) return c.json({ error: 'Requisição malformada' }, 400);
     console.error(err);
     return c.json({ error: 'Algo deu errado no servidor. Tente de novo.' }, 500);
@@ -369,8 +372,8 @@ export function createApp(db: Db, config: Config) {
     }
   };
 
-  app.post('/api/songs', async (c) => {
-    const body = v.obj(await c.req.json());
+  /** Adds a song at the end of its column; covers are then looked up online in the background. */
+  const addSong = async (body: Record<string, unknown>, actor: string | null) => {
     const f = songFields(body, true);
     const status = v.oneOf(body, 'status', STATUSES) ?? 'todo';
     const id = randomUUID();
@@ -382,11 +385,10 @@ export function createApp(db: Db, config: Config) {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, f.title!, f.artist ?? '', f.original ? 1 : 0, status, next, f.key ?? '', f.bpm ?? null, f.duration ?? null,
-        f.tuning ?? '', f.notes ?? '', JSON.stringify(f.links ?? []), cover, me(c), now(), now(),
+        f.tuning ?? '', f.notes ?? '', JSON.stringify(f.links ?? []), cover, actor, now(), now(),
       );
-      log(me(c), 'song.added', { songId: id, title: f.title, status });
+      log(actor, 'song.added', { songId: id, title: f.title, status });
     });
-    broadcast(c);
     // Fill in key, tuning and links after responding, so the card appears instantly; everyone refreshes when done.
     if (!f.original && config.enrichOnAdd !== false) {
       const picked = f.deezerId ? { deezerId: f.deezerId, title: f.title!, artist: f.artist ?? '', cover: null, duration: f.duration ?? null } : undefined;
@@ -394,18 +396,23 @@ export function createApp(db: Db, config: Config) {
         .then((filled) => filled.length && broadcastAll())
         .catch((err) => console.warn('background enrich failed:', (err as Error).message));
     }
+    return id;
+  };
+
+  app.post('/api/songs', async (c) => {
+    const id = await addSong(v.obj(await c.req.json()), me(c));
+    broadcast(c);
     return c.json({ id }, 201);
   });
 
-  app.patch('/api/songs/:id', async (c) => {
-    const song = getSong(c.req.param('id'));
-    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
-    const f = songFields(v.obj(await c.req.json()), false);
+  /** Changes only the fields present in `body`. */
+  const editSong = async (song: SongRow, body: Record<string, unknown>) => {
+    const f = songFields(body, false);
     const set = (value: unknown, current: unknown) => (value === undefined ? current : value);
     let cover = song.cover;
     if (f.coverUrl !== undefined) {
       const stored = await storeCover(f.coverUrl);
-      if (f.coverUrl && !stored) return c.json({ error: 'Não deu para baixar essa capa. Tente outra.' }, 502);
+      if (f.coverUrl && !stored) throw new v.HttpError('Não deu para baixar essa capa. Tente outra.', 502);
       music.removeCover(song.cover);
       cover = stored;
     }
@@ -426,6 +433,12 @@ export function createApp(db: Db, config: Config) {
       now(),
       song.id,
     );
+  };
+
+  app.patch('/api/songs/:id', async (c) => {
+    const song = getSong(c.req.param('id'));
+    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    await editSong(song, v.obj(await c.req.json()));
     broadcast(c);
     return c.json({ ok: true });
   });
@@ -570,27 +583,33 @@ export function createApp(db: Db, config: Config) {
     return c.json({ ok: true });
   });
 
+  const markRehearsed = (songId: string, at: number) => db.prepare('UPDATE songs SET last_rehearsed = ? WHERE id = ?').run(at, songId).changes > 0;
+
   app.post('/api/songs/:id/rehearsed', async (c) => {
     const body = v.obj(await c.req.json());
     const at = v.int(body, 'at', 0, Number.MAX_SAFE_INTEGER);
-    const res = db.prepare('UPDATE songs SET last_rehearsed = ? WHERE id = ?').run(at === undefined ? now() : at, c.req.param('id'));
-    if (!res.changes) return c.json({ error: 'Essa música não existe mais' }, 404);
+    if (!markRehearsed(c.req.param('id'), at ?? now())) return c.json({ error: 'Essa música não existe mais' }, 404);
     broadcast(c);
     return c.json({ ok: true });
   });
 
-  app.delete('/api/songs/:id', (c) => {
-    const song = getSong(c.req.param('id'));
-    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+  /** Deletes a song with its sheets, files and cover; setlists drop it too. */
+  const removeSong = (song: SongRow, actor: string | null) => {
     const stored = db.prepare('SELECT file FROM song_files WHERE song_id = ?').all(song.id) as { file: string }[];
     tx(db, () => {
       db.prepare('DELETE FROM songs WHERE id = ?').run(song.id);
       const rest = db.prepare('SELECT id FROM songs WHERE status = ? ORDER BY position').all(song.status) as { id: string }[];
       rest.forEach((r, position) => db.prepare('UPDATE songs SET position = ? WHERE id = ?').run(position, r.id));
-      log(me(c), 'song.deleted', { title: song.title });
+      log(actor, 'song.deleted', { title: song.title });
     });
     music.removeCover(song.cover);
     for (const f of stored) files.remove(f.file);
+  };
+
+  app.delete('/api/songs/:id', (c) => {
+    const song = getSong(c.req.param('id'));
+    if (!song) return c.json({ error: 'Essa música não existe mais' }, 404);
+    removeSong(song, me(c));
     broadcast(c);
     return c.json({ ok: true });
   });
@@ -837,8 +856,7 @@ export function createApp(db: Db, config: Config) {
     items.forEach((item, position) => insert.run(item.id, setlistId, position, item.type, item.songId, item.text, item.done ? 1 : 0));
   };
 
-  app.post('/api/setlists', async (c) => {
-    const body = v.obj(await c.req.json());
+  const createSetlist = (body: Record<string, unknown>, actor: string | null) => {
     const f = setlistFields(body, true);
     const id = randomUUID();
     tx(db, () => {
@@ -846,17 +864,21 @@ export function createApp(db: Db, config: Config) {
         id, f.kind ?? 'show', f.name!, f.date ?? null, f.time ?? null, f.venue ?? '', f.notes ?? '', now(), now(),
       );
       if (body.items !== undefined) writeItems(id, body.items);
-      log(me(c), 'setlist.created', { setlistId: id, name: f.name, kind: f.kind ?? 'show' });
+      log(actor, 'setlist.created', { setlistId: id, name: f.name, kind: f.kind ?? 'show' });
     });
+    return id;
+  };
+
+  app.post('/api/setlists', async (c) => {
+    const id = createSetlist(v.obj(await c.req.json()), me(c));
     broadcast(c);
     return c.json({ id }, 201);
   });
 
-  app.patch('/api/setlists/:id', async (c) => {
-    const id = c.req.param('id');
+  /** Changes only the fields present in `body`; `items`, when given, replaces the whole list. */
+  const editSetlist = (id: string, body: Record<string, unknown>) => {
     const current = db.prepare('SELECT * FROM setlists WHERE id = ?').get(id) as Record<string, unknown> | undefined;
-    if (!current) return c.json({ error: 'Esse setlist não existe mais' }, 404);
-    const body = v.obj(await c.req.json());
+    if (!current) throw new v.NotFound('Esse setlist não existe mais');
     const f = setlistFields(body, false);
     const pick = <T,>(value: T | undefined, key: string) => (value === undefined ? current[key] : value) as string | null;
     tx(db, () => {
@@ -865,18 +887,33 @@ export function createApp(db: Db, config: Config) {
       );
       if (body.items !== undefined) writeItems(id, body.items);
     });
+  };
+
+  app.patch('/api/setlists/:id', async (c) => {
+    editSetlist(c.req.param('id'), v.obj(await c.req.json()));
     broadcast(c);
     return c.json({ ok: true });
   });
 
+  const removeSetlist = (id: string, actor: string | null) => {
+    const current = db.prepare('SELECT name FROM setlists WHERE id = ?').get(id) as { name: string } | undefined;
+    if (!current) throw new v.NotFound('Esse setlist não existe mais');
+    db.prepare('DELETE FROM setlists WHERE id = ?').run(id);
+    log(actor, 'setlist.deleted', { name: current.name });
+  };
+
   app.delete('/api/setlists/:id', (c) => {
-    const current = db.prepare('SELECT name FROM setlists WHERE id = ?').get(c.req.param('id')) as { name: string } | undefined;
-    if (!current) return c.json({ error: 'Esse setlist não existe mais' }, 404);
-    db.prepare('DELETE FROM setlists WHERE id = ?').run(c.req.param('id'));
-    log(me(c), 'setlist.deleted', { name: current.name });
+    removeSetlist(c.req.param('id'), me(c));
     broadcast(c);
     return c.json({ ok: true });
   });
+
+  if (config.mcpTokenFile) {
+    mountMcp(app, config.mcpTokenFile, {
+      db, getSong, addSong, editSong, removeSong, placeSong, writeText, markRehearsed, createSetlist, editSetlist, removeSetlist,
+      changed: broadcastAll,
+    });
+  }
 
   app.all('/api/*', (c) => c.json({ error: 'Não encontrado' }, 404));
 

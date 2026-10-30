@@ -15,5 +15,5 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["server", "vite.config.ts", "web/src/lib/chords.ts"]
+  "include": ["server", "scripts", "vite.config.ts", "web/src/lib/chords.ts"]
 }

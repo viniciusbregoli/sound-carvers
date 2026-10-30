@@ -63,6 +63,7 @@ The rendered file is [`video/out/sound-carvers-tutorial.mp4`](video/out/sound-ca
 | Container | `soundcarvers` in `~/services/compose.yaml`, built from this directory, `127.0.0.1:8099` |
 | Data | `~/services/soundcarvers/data/setlist.db` (SQLite, WAL), `data/covers/` (downloaded album art) and `data/files/` (uploaded audio and images) |
 | Password | `SOUNDCARVERS_BAND_PASSWORD` in `~/services/.env` (mode 600) |
+| MCP token | `~/.config/soundcarvers-setlist-mcp/token` (mode 600), mounted at `/run/mcp` |
 | Public HTTPS | `soundcarvers.viniciusbregoli.dev` block in `~/services/public-proxy/Caddyfile` |
 | DNS | Cloudflare CNAME `soundcarvers` → `jellyfin.viniciusbregoli.dev` (DNS-only, follows the DDNS record) |
 
@@ -77,6 +78,15 @@ Change the band password: edit `SOUNDCARVERS_BAND_PASSWORD` in `~/services/.env`
 ```sh
 sudo docker exec soundcarvers node -e "new (require('node:sqlite').DatabaseSync)('/data/setlist.db').exec('DELETE FROM sessions')"
 ```
+
+### MCP server (for AI agents)
+
+The app also speaks [MCP](https://modelcontextprotocol.io) at **`/mcp`** (Streamable HTTP, stateless, JSON responses), so an agent such as Saga can organize songs, shows and rehearsals. It runs inside the same container ([`server/mcp.ts`](server/mcp.ts)) and goes through the same validation and write paths as the web app; changes show up live on everyone's screen.
+
+- **URL:** `https://setlist.soundcarvers.com.br/mcp` (the other host names work too).
+- **Auth:** `Authorization: Bearer <token>`. Anything else gets `401` with `WWW-Authenticate: Bearer`. The token lives in `~/.config/soundcarvers-setlist-mcp/token` (mode 600, never in git), mounted read-only into the container as `MCP_TOKEN_FILE=/run/mcp/token`. It is read on every request, so rotation needs no restart: `scripts/rotate-mcp-token.sh` writes a new one without printing it. Without a token file the endpoint refuses everything.
+- **Tools:** `list_members`; songs: `list_songs` (filters: text, column, original/cover, key, tuning, has lyrics/chords/tab), `get_song` (with lyrics, chords, tab, parts and confidence), `create_song`, `update_song` (also moves between columns), `delete_song`; setlists: `list_setlists`, `get_setlist`, `create_setlist`, `update_setlist`, `reorder_setlist`, `delete_setlist`; rehearsals: `list_rehearsals`, `get_rehearsal`, `create_rehearsal`, `update_rehearsal` (tick songs off, which updates "last rehearsed"), `delete_rehearsal`. Rehearsals are the app's setlists of kind *rehearsal* (the venue is called `place`). Read tools are marked `readOnlyHint`, deletes `destructiveHint`.
+- **Smoke test:** `node scripts/mcp-smoke-test.ts [url]` (defaults to the public URL) checks the 401s, initialize, tools/list, reads, and a create/update/delete round trip on a song titled `MCP SMOKE TEST - delete me`.
 
 ### Backups and restore
 
