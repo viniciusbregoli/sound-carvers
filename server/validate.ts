@@ -1,4 +1,17 @@
-export class BadRequest extends Error {}
+/** An error the client caused; its message is shown to the band as is. */
+export class HttpError extends Error {
+  status: 400 | 404 | 409 | 502;
+  constructor(message: string, status: 400 | 404 | 409 | 502 = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+export class BadRequest extends HttpError {}
+export class NotFound extends HttpError {
+  constructor(message: string) {
+    super(message, 404);
+  }
+}
 
 const LABELS: Record<string, string> = {
   title: 'título', artist: 'artista', name: 'nome', instrument: 'instrumento', color: 'cor', key: 'tom', bpm: 'andamento',

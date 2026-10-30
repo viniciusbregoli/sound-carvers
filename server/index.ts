@@ -23,6 +23,7 @@ const app = createApp(db, {
   bandName: process.env.BAND_NAME ?? 'Sound Carvers',
   music: createMusic(`${dataDir}/covers`),
   files: createFiles(`${dataDir}/files`),
+  mcpTokenFile: process.env.MCP_TOKEN_FILE || undefined,
 });
 
 // Hashed build assets never change; the HTML shell always revalidates.
