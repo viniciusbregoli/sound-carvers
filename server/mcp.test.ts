@@ -139,7 +139,12 @@ test('mcp rehearsals: plan, tick off, last rehearsed', async () => {
   assert.deepEqual(swapped.items.map((i: { songId: string; done: boolean }) => [i.songId, i.done]), [[b, false], [a, true]]);
   await assert.rejects(call('update_rehearsal', { rehearsalId: r.id, doneSongIds: ['other'] }), /not in this rehearsal/);
   // The same song twice (e.g. once to warm up, once at the end) gets two items.
-  assert.equal((await call('update_rehearsal', { rehearsalId: r.id, songIds: [b, a, b] })).items.length, 3);
+  const twice = await call('update_rehearsal', { rehearsalId: r.id, songIds: [b, a, b] });
+  assert.equal(twice.items.length, 3);
+  // Each occurrence keeps its own item on the next update.
+  const ids = twice.items.map((i: { itemId: string }) => i.itemId);
+  const again = await call('update_rehearsal', { rehearsalId: r.id, songIds: [b, a, b], notes: 'x' });
+  assert.deepEqual(again.items.map((i: { itemId: string }) => i.itemId), ids);
   await assert.rejects(call('update_rehearsal', { rehearsalId: r.id, name: '   ' }));
 
   const show = await call('create_setlist', { name: 'Show' });

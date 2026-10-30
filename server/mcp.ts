@@ -583,14 +583,12 @@ function buildServer(ops: Ops) {
   /** Rehearsal song list: keeps done flags of songs that stay; notes and breaks already there go to the end. */
   const rehearsalItems = (current: ItemRow[], songIds: string[], doneIds: Set<string>): Item[] => {
     checkSongIds(ops, songIds);
-    const existing = new Map(current.filter((i) => i.type === 'song').map((i) => [i.song_id!, i]));
-    const reused = new Set<string>();
+    // Each occurrence of a song takes over the next unused existing item for it (id, cue, done), in order.
+    const existing = new Map<string, ItemRow[]>();
+    for (const i of current) if (i.type === 'song') existing.set(i.song_id!, [...(existing.get(i.song_id!) ?? []), i]);
     const songs: Item[] = songIds.map((songId) => {
-      const was = existing.get(songId);
-      // A song listed twice keeps its old item id only once; ids are the table's primary key.
-      const id = was && !reused.has(songId) ? was.id : randomUUID();
-      reused.add(songId);
-      return { id, type: 'song', songId, text: was?.text ?? '', done: doneIds.has(songId) || !!was?.done };
+      const was = existing.get(songId)?.shift();
+      return { id: was?.id ?? randomUUID(), type: 'song', songId, text: was?.text ?? '', done: doneIds.has(songId) || !!was?.done };
     });
     const others: Item[] = current.filter((i) => i.type !== 'song').map((i) => ({ id: i.id, type: i.type, text: i.text, done: false }));
     return [...songs, ...others];
