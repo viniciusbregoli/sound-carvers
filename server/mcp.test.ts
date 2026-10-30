@@ -86,6 +86,7 @@ test('mcp song round trip with sheets and filters', async () => {
   assert.equal(updated.key, 'F#m');
 
   await assert.rejects(call('update_song', { songId: song.id, links: [{ url: 'javascript:alert(1)' }] }));
+  await assert.rejects(call('update_song', { songId: song.id, title: '   ' }));
   assert.deepEqual(await call('delete_song', { songId: song.id }), { deleted: true, songId: song.id, title: 'Wonderwall' });
   await assert.rejects(call('get_song', { songId: song.id }), /No song/);
   await cleanup();
@@ -137,6 +138,9 @@ test('mcp rehearsals: plan, tick off, last rehearsed', async () => {
   const swapped = await call('update_rehearsal', { rehearsalId: r.id, songIds: [b, a], notes: 'Focar nas viradas' });
   assert.deepEqual(swapped.items.map((i: { songId: string; done: boolean }) => [i.songId, i.done]), [[b, false], [a, true]]);
   await assert.rejects(call('update_rehearsal', { rehearsalId: r.id, doneSongIds: ['other'] }), /not in this rehearsal/);
+  // The same song twice (e.g. once to warm up, once at the end) gets two items.
+  assert.equal((await call('update_rehearsal', { rehearsalId: r.id, songIds: [b, a, b] })).items.length, 3);
+  await assert.rejects(call('update_rehearsal', { rehearsalId: r.id, name: '   ' }));
 
   const show = await call('create_setlist', { name: 'Show' });
   await assert.rejects(call('get_rehearsal', { rehearsalId: show.id }), /not a rehearsal/);

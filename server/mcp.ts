@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { STATUSES, type Db, type Status } from './db.ts';
 import { HttpError } from './validate.ts';
@@ -39,17 +39,17 @@ export type Ops = {
 const sha256 = (s: string) => createHash('sha256').update(s).digest();
 
 /** The current token, or null when the file is missing or empty (then every request is refused). */
-function readToken(file: string): string | null {
+async function readToken(file: string): Promise<string | null> {
   try {
-    const token = readFileSync(file, 'utf8').trim();
+    const token = (await readFile(file, 'utf8')).trim();
     return token.length >= 32 ? token : null;
   } catch {
     return null;
   }
 }
 
-function authorized(header: string | undefined, file: string) {
-  const token = readToken(file);
+async function authorized(header: string | undefined, file: string) {
+  const token = await readToken(file);
   const given = /^Bearer\s+(\S+)\s*$/i.exec(header ?? '')?.[1];
   return !!token && !!given && timingSafeEqual(sha256(given), sha256(token));
 }
@@ -57,7 +57,7 @@ function authorized(header: string | undefined, file: string) {
 export function mountMcp(app: Hono<any>, tokenFile: string, ops: Ops) {
   app.all('/mcp', async (c) => {
     c.header('Cache-Control', 'no-store');
-    if (!authorized(c.req.header('authorization'), tokenFile)) {
+    if (!(await authorized(c.req.header('authorization'), tokenFile))) {
       c.header('WWW-Authenticate', 'Bearer realm="sound-carvers-mcp"');
       return c.json({ error: 'Missing or invalid bearer token' }, 401);
     }
@@ -393,7 +393,7 @@ function buildServer(ops: Ops) {
         'lyrics, chords and tab replace the whole sheet. Returns the updated song.',
       inputSchema: {
         songId: id('song'),
-        title: z.string().min(1).max(120).optional().describe('New title.'),
+        title: z.string().trim().min(1).max(120).optional().describe('New title.'),
         status: status.optional(),
         position: z.number().int().min(0).max(100_000).optional().describe('0-based position inside the column; only used with status.'),
         ...songFields,
@@ -500,7 +500,7 @@ function buildServer(ops: Ops) {
         'to only change the order use reorder_setlist. Returns the updated setlist.',
       inputSchema: {
         setlistId: id('setlist'),
-        name: z.string().min(1).max(120).optional().describe('New name.'),
+        name: z.string().trim().min(1).max(120).optional().describe('New name.'),
         kind: z.enum(['show', 'rehearsal']).optional().describe('"show" or "rehearsal".'),
         ...setlistFields,
         items: z.array(itemInput).max(200).optional().describe('New full list of songs, breaks and notes in play order.'),
@@ -584,9 +584,13 @@ function buildServer(ops: Ops) {
   const rehearsalItems = (current: ItemRow[], songIds: string[], doneIds: Set<string>): Item[] => {
     checkSongIds(ops, songIds);
     const existing = new Map(current.filter((i) => i.type === 'song').map((i) => [i.song_id!, i]));
+    const reused = new Set<string>();
     const songs: Item[] = songIds.map((songId) => {
       const was = existing.get(songId);
-      return { id: was?.id ?? randomUUID(), type: 'song', songId, text: was?.text ?? '', done: doneIds.has(songId) || !!was?.done };
+      // A song listed twice keeps its old item id only once; ids are the table's primary key.
+      const id = was && !reused.has(songId) ? was.id : randomUUID();
+      reused.add(songId);
+      return { id, type: 'song', songId, text: was?.text ?? '', done: doneIds.has(songId) || !!was?.done };
     });
     const others: Item[] = current.filter((i) => i.type !== 'song').map((i) => ({ id: i.id, type: i.type, text: i.text, done: false }));
     return [...songs, ...others];
@@ -660,7 +664,7 @@ function buildServer(ops: Ops) {
         '"doneSongIds" ticks songs off as rehearsed, which also updates each song\'s last-rehearsed date. Returns the updated rehearsal.',
       inputSchema: {
         rehearsalId: id('rehearsal'),
-        name: z.string().min(1).max(120).optional().describe('New name.'),
+        name: z.string().trim().min(1).max(120).optional().describe('New name.'),
         ...rehearsalFields,
         songIds: z.array(z.string().max(64)).max(200).optional().describe('New full list of songs to rehearse, in order.'),
         doneSongIds: z.array(z.string().max(64)).max(200).optional().describe('Songs of this rehearsal to mark as rehearsed.'),
