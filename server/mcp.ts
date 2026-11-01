@@ -5,7 +5,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import { STATUSES, type Db, type Status } from './db.ts';
+import { RENTAL_STATUSES, STATUSES, type Db, type Status } from './db.ts';
 import { HttpError } from './validate.ts';
 import type { SongRow } from './app.ts';
 
@@ -32,6 +32,9 @@ export type Ops = {
   createSetlist: (body: Body, actor: string | null) => string;
   editSetlist: (id: string, body: Body) => void;
   removeSetlist: (id: string, actor: string | null) => void;
+  addRental: (setlistId: string, body: Body) => string;
+  editRental: (id: string, body: Body) => void;
+  removeRental: (id: string) => void;
   /** Tells every open browser to refresh. */
   changed: () => void;
 };
@@ -160,6 +163,37 @@ function setlistSummary(ops: Ops, s: SetlistRow) {
   };
 }
 
+type RentalRow = {
+  id: string; setlist_id: string; name: string; quantity: number; supplier: string; cost: number | null;
+  member_id: string | null; member_name: string | null; status: string; notes: string;
+};
+
+const rentalsOf = (ops: Ops, setlistId: string) =>
+  ops.db
+    .prepare('SELECT r.*, m.name AS member_name FROM rentals r LEFT JOIN members m ON m.id = r.member_id WHERE r.setlist_id = ? ORDER BY r.position')
+    .all(setlistId) as RentalRow[];
+
+const reais = (cents: number | null) => (cents == null ? null : cents / 100);
+
+function rentalOut(r: RentalRow) {
+  return {
+    rentalId: r.id,
+    name: r.name,
+    quantity: r.quantity,
+    supplier: r.supplier,
+    costReais: reais(r.cost),
+    responsible: r.member_id ? { memberId: r.member_id, name: r.member_name } : null,
+    status: r.status,
+    notes: r.notes,
+  };
+}
+
+/** The show's rental list with its total cost. */
+function rentalsDetail(ops: Ops, setlistId: string) {
+  const rentals = rentalsOf(ops, setlistId);
+  return { rentals: rentals.map(rentalOut), rentalTotalReais: reais(rentals.reduce((sum, r) => sum + (r.cost ?? 0), 0)) };
+}
+
 function setlistDetail(ops: Ops, s: SetlistRow) {
   return {
     ...setlistSummary(ops, s),
@@ -181,6 +215,7 @@ function setlistDetail(ops: Ops, s: SetlistRow) {
         done: !!i.done,
       };
     }),
+    ...rentalsDetail(ops, s.id),
     createdAt: iso(s.created_at),
     updatedAt: iso(s.updated_at),
   };
@@ -188,7 +223,7 @@ function setlistDetail(ops: Ops, s: SetlistRow) {
 
 /** Rehearsals call the venue "place" and the items "songs". */
 function rehearsalDetail(ops: Ops, s: SetlistRow) {
-  const { venue, kind: _kind, ...rest } = setlistDetail(ops, s);
+  const { venue, kind: _kind, rentals: _r, rentalTotalReais: _t, ...rest } = setlistDetail(ops, s);
   return { ...rest, place: venue };
 }
 
@@ -297,7 +332,8 @@ function buildServer(ops: Ops) {
     {
       instructions:
         'Sound Carvers band notebook. Songs sit on a board with four columns (todo, learning, shaky, ready). ' +
-        'Setlists are either shows or rehearsals; rehearsals have their own tools. Ids come from list_* results. ' +
+        'Setlists are either shows or rehearsals; rehearsals have their own tools. Each show also has a list of gear to rent ' +
+        '(amps, drum kit, PA…), read with get_setlist and changed with the *_rental tools. Ids come from list_* results. ' +
         'Text the band typed is usually Brazilian Portuguese. Changes appear live in the band app.',
     },
   );
@@ -455,7 +491,7 @@ function buildServer(ops: Ops) {
     'get_setlist',
     {
       title: 'Get a setlist',
-      description: 'Get one setlist (show or rehearsal) with its items in order: songs (with key, length, tuning, done flag), set breaks and notes. Item ids are used by reorder_setlist.',
+      description: 'Get one setlist (show or rehearsal) with its items in order: songs (with key, length, tuning, done flag), set breaks and notes, plus the gear to rent for it with the total cost. Item ids are used by reorder_setlist; rental ids by update_rental.',
       inputSchema: { setlistId: id('setlist') },
       annotations: READ,
     },
@@ -568,6 +604,92 @@ function buildServer(ops: Ops) {
         ops.removeSetlist(s.id, null);
         ops.changed();
         return { deleted: true, setlistId: s.id, name: s.name };
+      }),
+  );
+
+  // ---- rentals ----
+
+  const rentalStatus = z
+    .enum(RENTAL_STATUSES)
+    .describe('"needed" (still to book), "reserved" (booked), "picked_up" (with the band), "returned" (given back).');
+  const rentalFields = {
+    quantity: z.number().int().min(1).max(999).optional().describe('How many, default 1.'),
+    supplier: z.string().max(120).optional().describe('Where or from whom it is rented (shop, person, contact).'),
+    costReais: z.number().min(0).max(1_000_000).nullable().optional().describe('Total price in BRL for this line, e.g. 150 or 89.9; null clears it.'),
+    responsibleMemberId: z.string().max(64).nullable().optional().describe('Member (from list_members) who books and picks it up; null clears it.'),
+    status: rentalStatus.optional(),
+    notes: z.string().max(2_000).optional().describe('Pickup/return times, deposit, specs. Replaces the existing notes.'),
+  };
+  type RentalInput = { name?: string; quantity?: number; supplier?: string; costReais?: number | null; responsibleMemberId?: string | null; status?: string; notes?: string };
+  const rentalBody = (a: RentalInput) =>
+    defined({
+      name: a.name, quantity: a.quantity, supplier: a.supplier, status: a.status, notes: a.notes, memberId: a.responsibleMemberId,
+      cost: a.costReais === undefined ? undefined : a.costReais === null ? null : Math.round(a.costReais * 100),
+    });
+  const needRental = (rentalId: string) => {
+    const r = db.prepare('SELECT setlist_id FROM rentals WHERE id = ?').get(rentalId) as { setlist_id: string } | undefined;
+    if (!r) throw new ToolError(`No rental with id ${rentalId}. Use get_setlist to see a show's rentals.`);
+    return r.setlist_id;
+  };
+
+  server.registerTool(
+    'add_rental',
+    {
+      title: 'Add gear to rent for a show',
+      description: 'Add an item the band needs to rent for a show (e.g. "Amplificador de baixo", "Bateria completa"). Returns the show\'s full rental list.',
+      inputSchema: {
+        setlistId: id('setlist'),
+        name: z.string().trim().min(1).max(120).describe('What to rent, as the band would write it (Portuguese).'),
+        ...rentalFields,
+      },
+      annotations: CREATE,
+    },
+    (a) =>
+      run(() => {
+        const s = needSetlist(ops, a.setlistId);
+        const { setlistId: _, ...fields } = a;
+        ops.addRental(s.id, rentalBody(fields));
+        ops.changed();
+        return rentalsDetail(ops, s.id);
+      }),
+  );
+
+  server.registerTool(
+    'update_rental',
+    {
+      title: 'Update a rental',
+      description: 'Change a rental item; only the fields you pass change. Use it to mark items reserved, picked up or returned. Returns the show\'s full rental list.',
+      inputSchema: {
+        rentalId: id('rental'),
+        name: z.string().trim().min(1).max(120).optional().describe('New name.'),
+        ...rentalFields,
+      },
+      annotations: UPDATE,
+    },
+    (a) =>
+      run(() => {
+        const setlistId = needRental(a.rentalId);
+        const { rentalId, ...fields } = a;
+        ops.editRental(rentalId, rentalBody(fields));
+        ops.changed();
+        return rentalsDetail(ops, setlistId);
+      }),
+  );
+
+  server.registerTool(
+    'delete_rental',
+    {
+      title: 'Remove a rental',
+      description: "Remove an item from a show's rental list. Returns the remaining list.",
+      inputSchema: { rentalId: id('rental') },
+      annotations: DELETE,
+    },
+    (a) =>
+      run(() => {
+        const setlistId = needRental(a.rentalId);
+        ops.removeRental(a.rentalId);
+        ops.changed();
+        return rentalsDetail(ops, setlistId);
       }),
   );
 

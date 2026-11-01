@@ -28,11 +28,11 @@ export function Shell({ bandName, onSwitchMember }: { bandName: string; onSwitch
   const stage = path.match(/^\/setlists\/([^/]+)\/stage$/);
   if (stage) return <Stage setlistId={stage[1]} />;
 
-  const setlist = path.match(/^\/setlists\/([^/]+)$/);
+  const setlist = path.match(/^\/setlists\/([^/]+?)(\/rentals)?$/);
   let page;
   if (path === '/') page = <Board />;
   else if (path === '/setlists') page = <Setlists />;
-  else if (setlist) page = <SetlistEditor setlistId={setlist[1]} />;
+  else if (setlist) page = <SetlistEditor setlistId={setlist[1]} tab={setlist[2] ? 'rentals' : 'songs'} />;
   else if (path === '/band') page = <Band onSwitchMember={onSwitchMember} />;
   else
     page = (

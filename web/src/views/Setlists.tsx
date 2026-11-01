@@ -65,8 +65,9 @@ export function Setlists() {
 }
 
 function Group({ title, lists, songsById, highlightFirst }: { title: string; lists: Setlist[]; songsById: ReturnType<typeof useBand>['songsById']; highlightFirst?: boolean }) {
-  if (!lists.length) return null;
+  const { state } = useBand();
   const id = useId();
+  if (!lists.length) return null;
   return (
     <section className="setlist-group" aria-labelledby={id}>
       <h2 id={id} className="group-title">
@@ -76,6 +77,7 @@ function Group({ title, lists, songsById, highlightFirst }: { title: string; lis
         {lists.map((l, i) => {
           const s = summarize(l, songsById);
           const Icon = l.kind === 'show' ? Mic2 : Drum;
+          const toRent = l.kind === 'show' ? state.rentals.filter((r) => r.setlistId === l.id && r.status === 'needed').length : 0;
           return (
             <li key={l.id}>
               <Link href={`/setlists/${l.id}`} className={`setlist-card kind-${l.kind}${highlightFirst && i === 0 ? ' is-next' : ''}`}>
@@ -106,6 +108,7 @@ function Group({ title, lists, songsById, highlightFirst }: { title: string; lis
                       {s.ready === s.songs.length ? 'Todas prontas' : `${s.songs.length - s.ready} não ${s.songs.length - s.ready === 1 ? 'está pronta' : 'estão prontas'}`}
                     </span>
                   )}
+                  {toRent > 0 && <span className="warn">{`${toRent} a alugar`}</span>}
                   {l.kind === 'rehearsal' && s.songs.length > 0 && s.done > 0 && <span>{`${s.done} de ${s.songs.length} tocadas`}</span>}
                 </span>
                 <ChevronRight className="setlist-chevron" size={20} aria-hidden />

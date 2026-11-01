@@ -5,6 +5,10 @@ import { join } from 'node:path';
 export const STATUSES = ['todo', 'learning', 'shaky', 'ready'] as const;
 export type Status = (typeof STATUSES)[number];
 
+/** Where a rented item for a show stands: still to book, booked, picked up, given back. */
+export const RENTAL_STATUSES = ['needed', 'reserved', 'picked_up', 'returned'] as const;
+export type RentalStatus = (typeof RENTAL_STATUSES)[number];
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS members (
   id TEXT PRIMARY KEY,
@@ -86,6 +90,22 @@ CREATE TABLE IF NOT EXISTS setlist_items (
   done INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS setlist_items_by_setlist ON setlist_items(setlist_id, position);
+-- Gear to rent for a show (amps, drum kit, PA…); cost is the total in centavos.
+CREATE TABLE IF NOT EXISTS rentals (
+  id TEXT PRIMARY KEY,
+  setlist_id TEXT NOT NULL REFERENCES setlists(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  supplier TEXT NOT NULL DEFAULT '',
+  cost INTEGER,
+  member_id TEXT REFERENCES members(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'needed',
+  notes TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rentals_by_setlist ON rentals(setlist_id, position);
 CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   member_id TEXT,
