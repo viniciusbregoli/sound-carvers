@@ -140,6 +140,8 @@ test('mcp rentals: add, update, delete, shown on the setlist', async () => {
   assert.equal(updated.rentalTotalReais, 289.9);
   await assert.rejects(call('add_rental', { setlistId: show.id, name: 'X', responsibleMemberId: 'ghost' }), /integrante/);
   await assert.rejects(call('update_rental', { rentalId: 'nope', status: 'returned' }), /No rental/);
+  const rehearsal = await call('create_rehearsal', { date: '2026-11-01' });
+  await assert.rejects(call('add_rental', { setlistId: rehearsal.id, name: 'Bateria' }), /Só shows/);
 
   assert.equal((await call('get_setlist', { setlistId: show.id })).rentals.length, 2);
   assert.equal((await call('delete_rental', { rentalId })).rentals.length, 1);

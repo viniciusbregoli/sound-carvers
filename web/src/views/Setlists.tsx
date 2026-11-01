@@ -77,7 +77,7 @@ function Group({ title, lists, songsById, highlightFirst }: { title: string; lis
         {lists.map((l, i) => {
           const s = summarize(l, songsById);
           const Icon = l.kind === 'show' ? Mic2 : Drum;
-          const toRent = state.rentals.filter((r) => r.setlistId === l.id && r.status === 'needed').length;
+          const toRent = l.kind === 'show' ? state.rentals.filter((r) => r.setlistId === l.id && r.status === 'needed').length : 0;
           return (
             <li key={l.id}>
               <Link href={`/setlists/${l.id}`} className={`setlist-card kind-${l.kind}${highlightFirst && i === 0 ? ' is-next' : ''}`}>

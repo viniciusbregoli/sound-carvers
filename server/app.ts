@@ -873,7 +873,7 @@ export function createApp(db: Db, config: Config) {
       if (body.items !== undefined) writeItems(id, body.items);
       // Duplicating a show brings its rental list along, all back to "to book".
       const copyFrom = v.str(body, 'copyRentalsFrom', 64);
-      if (copyFrom) {
+      if (copyFrom && (f.kind ?? 'show') === 'show') {
         const insert = db.prepare(
           `INSERT INTO rentals (id, setlist_id, position, name, quantity, supplier, cost, member_id, status, notes, created_at, updated_at)
            SELECT ?, ?, position, name, quantity, supplier, cost, member_id, 'needed', notes, ?, ? FROM rentals WHERE id = ?`,
@@ -954,7 +954,9 @@ export function createApp(db: Db, config: Config) {
   };
 
   const addRental = (setlistId: string, body: Record<string, unknown>) => {
-    if (!db.prepare('SELECT 1 FROM setlists WHERE id = ?').get(setlistId)) throw new v.NotFound('Esse show não existe mais');
+    const setlist = db.prepare('SELECT kind FROM setlists WHERE id = ?').get(setlistId) as { kind: string } | undefined;
+    if (!setlist) throw new v.NotFound('Esse show não existe mais');
+    if (setlist.kind !== 'show') throw new v.BadRequest('Só shows têm lista de aluguel');
     const f = rentalFields(body, true);
     const id = randomUUID();
     tx(db, () => {
@@ -976,6 +978,7 @@ export function createApp(db: Db, config: Config) {
     const current = db.prepare('SELECT * FROM rentals WHERE id = ?').get(id) as RentalRow | undefined;
     if (!current) throw new v.NotFound('Esse item não existe mais');
     const f = rentalFields(body, false);
+    if (f.name === '') throw new v.BadRequest('Preencha o campo nome');
     const pick = <T,>(value: T | undefined, fallback: unknown) => (value === undefined ? fallback : value) as string | number | null;
     db.prepare('UPDATE rentals SET name = ?, quantity = ?, supplier = ?, cost = ?, member_id = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?').run(
       pick(f.name, current.name), pick(f.quantity ?? undefined, current.quantity), pick(f.supplier, current.supplier), pick(f.cost, current.cost),

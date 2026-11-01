@@ -114,6 +114,11 @@ test('rentals for a show: add, edit, validate, copy on duplicate, cascade', asyn
 
   assert.equal((await call('PATCH', `/api/rentals/${kit}`, { status: 'reserved', cost: 30000 })).status, 200);
   assert.equal((await call('PATCH', '/api/rentals/nope', { status: 'reserved' })).status, 404);
+  assert.equal((await call('PATCH', `/api/rentals/${kit}`, { name: '   ' })).status, 400, 'a blank name is refused on edit too');
+
+  // Rentals belong to shows only, and duplicating as a rehearsal brings none along.
+  const rehearsal = (await call('POST', '/api/setlists', { name: 'Ensaio', kind: 'rehearsal', copyRentalsFrom: show })).body.id;
+  assert.equal((await call('POST', `/api/setlists/${rehearsal}/rentals`, { name: 'Bateria' })).status, 400);
 
   let state = (await call('GET', '/api/state')).body;
   assert.deepEqual(
@@ -124,6 +129,7 @@ test('rentals for a show: add, edit, validate, copy on duplicate, cascade', asyn
   // Duplicating the show copies the list, back to "needed".
   const copy = (await call('POST', '/api/setlists', { name: 'Gig 2', kind: 'show', copyRentalsFrom: show })).body.id;
   state = (await call('GET', '/api/state')).body;
+  assert.ok(!state.rentals.some((r: { setlistId: string }) => r.setlistId === rehearsal));
   const copied = state.rentals.filter((r: { setlistId: string }) => r.setlistId === copy);
   assert.deepEqual(copied.map((r: { name: string; status: string }) => [r.name, r.status]), [['Amplificador de baixo', 'needed'], ['Bateria', 'needed']]);
 
