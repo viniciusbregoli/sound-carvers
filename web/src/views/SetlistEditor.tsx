@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -42,8 +42,11 @@ import { needsWork, newItemId, rowsOf, setRuntimes, summarize, type Row } from '
 import { useOpenSong } from './Shell';
 import { CoverArt } from '../components/Cover';
 import { useToast } from '../components/Toast';
+import { RentalsPanel } from './Rentals';
 
-export function SetlistEditor({ setlistId }: { setlistId: string }) {
+export type EditorTab = 'songs' | 'rentals';
+
+export function SetlistEditor({ setlistId, tab }: { setlistId: string; tab: EditorTab }) {
   const { state } = useBand();
   const setlist = state.setlists.find((l) => l.id === setlistId);
   if (!setlist) {
@@ -57,10 +60,10 @@ export function SetlistEditor({ setlistId }: { setlistId: string }) {
       </div>
     );
   }
-  return <Editor key={setlist.id} setlist={setlist} />;
+  return <Editor key={setlist.id} setlist={setlist} tab={setlist.kind === 'show' ? tab : 'songs'} />;
 }
 
-function Editor({ setlist }: { setlist: Setlist }) {
+function Editor({ setlist, tab }: { setlist: Setlist; tab: EditorTab }) {
   const { state, songsById, setItems, updateSetlist, deleteSetlist, addSetlist, markRehearsed, setBusy } = useBand();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -120,6 +123,7 @@ function Editor({ setlist }: { setlist: Setlist }) {
         venue: setlist.venue,
         notes: setlist.notes,
         items: setlist.items.map((i) => ({ ...i, id: newItemId(), done: false })),
+        copyRentalsFrom: isShow ? setlist.id : undefined,
       });
       navigate(`/setlists/${id}`);
     } catch {
@@ -172,119 +176,129 @@ function Editor({ setlist }: { setlist: Setlist }) {
         </div>
       </div>
 
-      <div className="editor-summary" aria-live="polite">
-        <span>
-          <strong>{plural(summary.songs.length, 'música')}</strong>
-        </span>
-        {summary.runtime > 0 && (
-          <span>
-            <strong>{formatRuntime(summary.runtime)}</strong>
-            {summary.missingDuration > 0 && <span className="muted"> + {summary.missingDuration} sem duração</span>}
-          </span>
-        )}
-        {isShow && summary.songs.length > 0 && (
-          <span className={summary.ready === summary.songs.length ? 'ok' : 'warn'}>
-            {summary.ready === summary.songs.length ? (
-              <>
-                <StageIcon status="ready" size={16} /> Todas prontas pro show
-              </>
-            ) : (
-              <>
-                <TriangleAlert size={16} aria-hidden /> {plural(summary.songs.length - summary.ready, 'ainda não está pronta', 'ainda não estão prontas')}
-              </>
+      {isShow && <EditorTabs setlist={setlist} tab={tab} />}
+
+      {tab === 'rentals' ? (
+        <div role="tabpanel" id="panel-rentals" aria-labelledby="tab-rentals">
+          <RentalsPanel setlist={setlist} />
+        </div>
+      ) : (
+        <div role={isShow ? 'tabpanel' : undefined} id={isShow ? 'panel-songs' : undefined} aria-labelledby={isShow ? 'tab-songs' : undefined}>
+          <div className="editor-summary" aria-live="polite">
+            <span>
+              <strong>{plural(summary.songs.length, 'música')}</strong>
+            </span>
+            {summary.runtime > 0 && (
+              <span>
+                <strong>{formatRuntime(summary.runtime)}</strong>
+                {summary.missingDuration > 0 && <span className="muted"> + {summary.missingDuration} sem duração</span>}
+              </span>
             )}
-          </span>
-        )}
-        {!isShow && summary.songs.length > 0 && (
-          <span>
-            {summary.done} de {summary.songs.length} tocadas
-          </span>
-        )}
-      </div>
+            {isShow && summary.songs.length > 0 && (
+              <span className={summary.ready === summary.songs.length ? 'ok' : 'warn'}>
+                {summary.ready === summary.songs.length ? (
+                  <>
+                    <StageIcon status="ready" size={16} /> Todas prontas pro show
+                  </>
+                ) : (
+                  <>
+                    <TriangleAlert size={16} aria-hidden /> {plural(summary.songs.length - summary.ready, 'ainda não está pronta', 'ainda não estão prontas')}
+                  </>
+                )}
+              </span>
+            )}
+            {!isShow && summary.songs.length > 0 && (
+              <span>
+                {summary.done} de {summary.songs.length} tocadas
+              </span>
+            )}
+          </div>
 
-      <div className="editor-body">
-        <section className="running-order" aria-labelledby="order-title">
-          <h2 id="order-title" className="visually-hidden">
-            Ordem das músicas
-          </h2>
-          {setlist.items.length === 0 ? (
-            <div className="order-empty">
-              <p className="display-sm">Setlist vazio</p>
-              <p className="muted">
-                {isShow ? 'Adicione as músicas na ordem em que vão tocar. Arraste para reordenar.' : 'Adicione o que vocês querem trabalhar e marque cada música conforme forem tocando.'}
-              </p>
-              {!isShow && suggestions.length > 0 && (
-                <button className="btn btn-secondary" onClick={() => addSongs(suggestions)}>
-                  <Wand2 size={18} aria-hidden />
-                  Adicionar {plural(suggestions.length, 'música')} que precisa{suggestions.length === 1 ? '' : 'm'} de trabalho
-                </button>
+          <div className="editor-body">
+            <section className="running-order" aria-labelledby="order-title">
+              <h2 id="order-title" className="visually-hidden">
+                Ordem das músicas
+              </h2>
+              {setlist.items.length === 0 ? (
+                <div className="order-empty">
+                  <p className="display-sm">Setlist vazio</p>
+                  <p className="muted">
+                    {isShow ? 'Adicione as músicas na ordem em que vão tocar. Arraste para reordenar.' : 'Adicione o que vocês querem trabalhar e marque cada música conforme forem tocando.'}
+                  </p>
+                  {!isShow && suggestions.length > 0 && (
+                    <button className="btn btn-secondary" onClick={() => addSongs(suggestions)}>
+                      <Wand2 size={18} aria-hidden />
+                      Adicionar {plural(suggestions.length, 'música')} que precisa{suggestions.length === 1 ? '' : 'm'} de trabalho
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  modifiers={[restrictToVerticalAxis]}
+                  onDragStart={() => setBusy(true)}
+                  onDragEnd={onDragEnd}
+                  onDragCancel={() => setBusy(false)}
+                  accessibility={{
+                    announcements,
+                    screenReaderInstructions: { draggable: 'Pressione Espaço para pegar esta linha, as setas para movê-la e Espaço de novo para soltar.' },
+                  }}
+                >
+                  <SortableContext items={setlist.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                    <ol className="order-list" role="list">
+                      {rows.map((row) => (
+                        <OrderRow
+                          key={row.item.id}
+                          row={row}
+                          isShow={isShow}
+                          subtotal={runtimes.totals.get(row.item.id)}
+                          onText={(text) => save(setlist.items.map((i) => (i.id === row.item.id ? { ...i, text } : i)))}
+                          onDone={(done) => toggleDone(row.item, done)}
+                          onRemove={() => removeItem(row)}
+                        />
+                      ))}
+                    </ol>
+                  </SortableContext>
+                </DndContext>
               )}
-            </div>
-          ) : (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              modifiers={[restrictToVerticalAxis]}
-              onDragStart={() => setBusy(true)}
-              onDragEnd={onDragEnd}
-              onDragCancel={() => setBusy(false)}
-              accessibility={{
-                announcements,
-                screenReaderInstructions: { draggable: 'Pressione Espaço para pegar esta linha, as setas para movê-la e Espaço de novo para soltar.' },
-              }}
-            >
-              <SortableContext items={setlist.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                <ol className="order-list" role="list">
-                  {rows.map((row) => (
-                    <OrderRow
-                      key={row.item.id}
-                      row={row}
-                      isShow={isShow}
-                      subtotal={runtimes.totals.get(row.item.id)}
-                      onText={(text) => save(setlist.items.map((i) => (i.id === row.item.id ? { ...i, text } : i)))}
-                      onDone={(done) => toggleDone(row.item, done)}
-                      onRemove={() => removeItem(row)}
-                    />
-                  ))}
-                </ol>
-              </SortableContext>
-            </DndContext>
-          )}
-          {hasBreaks && runtimes.last > 0 && <p className="set-subtotal-end">Último set · {formatRuntime(runtimes.last)}</p>}
-          <div className="order-add">
-            <button className="btn btn-secondary picker-trigger" onClick={() => setPickerOpen(true)}>
-              <ListPlus size={18} aria-hidden />
-              Adicionar músicas
-            </button>
-            <button className="btn btn-ghost" onClick={() => addMarker('break')}>
-              <SeparatorHorizontal size={18} aria-hidden />
-              Adicionar intervalo
-            </button>
-            <button className="btn btn-ghost" onClick={() => addMarker('note')}>
-              <StickyNote size={18} aria-hidden />
-              Adicionar anotação
-            </button>
-          </div>
-          <div className="field setlist-notes">
-            <label htmlFor="sl-notes">{isShow ? 'Anotações do show' : 'Anotações do ensaio'}</label>
-            <textarea
-              id="sl-notes"
-              rows={3}
-              defaultValue={setlist.notes}
-              maxLength={5000}
-              placeholder={isShow ? 'Horário de chegada, backline, quem leva o quê…' : 'No que focar, o que foi bem…'}
-              onBlur={(e) => e.target.value !== setlist.notes && void updateSetlist(setlist.id, { notes: e.target.value }).catch(() => {})}
-            />
-          </div>
-        </section>
+              {hasBreaks && runtimes.last > 0 && <p className="set-subtotal-end">Último set · {formatRuntime(runtimes.last)}</p>}
+              <div className="order-add">
+                <button className="btn btn-secondary picker-trigger" onClick={() => setPickerOpen(true)}>
+                  <ListPlus size={18} aria-hidden />
+                  Adicionar músicas
+                </button>
+                <button className="btn btn-ghost" onClick={() => addMarker('break')}>
+                  <SeparatorHorizontal size={18} aria-hidden />
+                  Adicionar intervalo
+                </button>
+                <button className="btn btn-ghost" onClick={() => addMarker('note')}>
+                  <StickyNote size={18} aria-hidden />
+                  Adicionar anotação
+                </button>
+              </div>
+              <div className="field setlist-notes">
+                <label htmlFor="sl-notes">{isShow ? 'Anotações do show' : 'Anotações do ensaio'}</label>
+                <textarea
+                  id="sl-notes"
+                  rows={3}
+                  defaultValue={setlist.notes}
+                  maxLength={5000}
+                  placeholder={isShow ? 'Horário de chegada, backline, quem leva o quê…' : 'No que focar, o que foi bem…'}
+                  onBlur={(e) => e.target.value !== setlist.notes && void updateSetlist(setlist.id, { notes: e.target.value }).catch(() => {})}
+                />
+              </div>
+            </section>
 
-        <aside className="picker-aside" aria-labelledby="picker-title">
-          <h2 id="picker-title" className="aside-title">
-            Adicionar músicas
-          </h2>
-          <SongPicker setlist={setlist} onAdd={addSongs} suggestions={isShow ? [] : suggestions} />
-        </aside>
-      </div>
+            <aside className="picker-aside" aria-labelledby="picker-title">
+              <h2 id="picker-title" className="aside-title">
+                Adicionar músicas
+              </h2>
+              <SongPicker setlist={setlist} onAdd={addSongs} suggestions={isShow ? [] : suggestions} />
+            </aside>
+          </div>
+        </div>
+      )}
 
       <Dialog open={pickerOpen} onClose={() => setPickerOpen(false)} title="Adicionar músicas" variant="sheet">
         <SongPicker setlist={setlist} onAdd={addSongs} suggestions={isShow ? [] : suggestions} />
@@ -303,6 +317,56 @@ function Editor({ setlist }: { setlist: Setlist }) {
       />
 
       <PrintSheet setlist={setlist} rows={rows} />
+    </div>
+  );
+}
+
+const TABS: { id: EditorTab; label: string }[] = [
+  { id: 'songs', label: 'Músicas' },
+  { id: 'rentals', label: 'Aluguel' },
+];
+
+/** Shows have two tabs: the running order and the gear to rent. The open one lives in the URL. */
+function EditorTabs({ setlist, tab }: { setlist: Setlist; tab: EditorTab }) {
+  const { state } = useBand();
+  const pending = state.rentals.filter((r) => r.setlistId === setlist.id && r.status === 'needed').length;
+  const open = (next: EditorTab) => {
+    navigate(`/setlists/${setlist.id}${next === 'rentals' ? '/rentals' : ''}`, { replace: true });
+    document.getElementById(`tab-${next}`)?.focus();
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const i = TABS.findIndex((t) => t.id === tab);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + TABS.length) % TABS.length;
+    open(TABS[next].id);
+  };
+  return (
+    <div className="editor-tabs" role="tablist" aria-label="Partes do show" onKeyDown={onKeyDown}>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={`tab-${t.id}`}
+          aria-controls={`panel-${t.id}`}
+          aria-selected={tab === t.id}
+          tabIndex={tab === t.id ? 0 : -1}
+          className="song-tab"
+          onClick={() => open(t.id)}
+        >
+          {t.label}
+          {t.id === 'songs' && setlist.items.some((i) => i.type === 'song') && (
+            <span className="song-tab-count">{setlist.items.filter((i) => i.type === 'song').length}</span>
+          )}
+          {t.id === 'rentals' && pending > 0 && (
+            <span className="song-tab-count is-attention">
+              {pending}
+              <span className="visually-hidden"> a alugar</span>
+            </span>
+          )}
+        </button>
+      ))}
     </div>
   );
 }

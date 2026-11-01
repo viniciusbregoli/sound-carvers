@@ -97,6 +97,45 @@ test('board flow: add, move, confidence, setlist', async () => {
   cleanup();
 });
 
+test('rentals for a show: add, edit, validate, copy on duplicate, cascade', async () => {
+  const { call, cleanup } = setup();
+  await call('POST', '/api/login', { password: 'correct horse' });
+  const ana = (await call('POST', '/api/members', { name: 'Ana', instrument: 'Drums', color: '#3366ff' })).body.id;
+  const show = (await call('POST', '/api/setlists', { name: 'Gig', kind: 'show' })).body.id;
+
+  const amp = await call('POST', `/api/setlists/${show}/rentals`, { name: 'Amplificador de baixo', supplier: 'Loja do Som', cost: 15000, memberId: ana });
+  assert.equal(amp.status, 201);
+  const kit = (await call('POST', `/api/setlists/${show}/rentals`, { name: 'Bateria', quantity: 1 })).body.id;
+  assert.equal((await call('POST', `/api/setlists/${show}/rentals`, { name: '  ' })).status, 400);
+  assert.equal((await call('POST', `/api/setlists/${show}/rentals`, { name: 'X', cost: -1 })).status, 400);
+  assert.equal((await call('POST', `/api/setlists/${show}/rentals`, { name: 'X', memberId: 'ghost' })).status, 400);
+  assert.equal((await call('POST', `/api/setlists/${show}/rentals`, { name: 'X', status: 'lost' })).status, 400);
+  assert.equal((await call('POST', '/api/setlists/nope/rentals', { name: 'X' })).status, 404);
+
+  assert.equal((await call('PATCH', `/api/rentals/${kit}`, { status: 'reserved', cost: 30000 })).status, 200);
+  assert.equal((await call('PATCH', '/api/rentals/nope', { status: 'reserved' })).status, 404);
+
+  let state = (await call('GET', '/api/state')).body;
+  assert.deepEqual(
+    state.rentals.map((r: { name: string; status: string; cost: number; memberId: string | null }) => [r.name, r.status, r.cost, r.memberId]),
+    [['Amplificador de baixo', 'needed', 15000, ana], ['Bateria', 'reserved', 30000, null]],
+  );
+
+  // Duplicating the show copies the list, back to "needed".
+  const copy = (await call('POST', '/api/setlists', { name: 'Gig 2', kind: 'show', copyRentalsFrom: show })).body.id;
+  state = (await call('GET', '/api/state')).body;
+  const copied = state.rentals.filter((r: { setlistId: string }) => r.setlistId === copy);
+  assert.deepEqual(copied.map((r: { name: string; status: string }) => [r.name, r.status]), [['Amplificador de baixo', 'needed'], ['Bateria', 'needed']]);
+
+  // Removing a member keeps the item, unassigned; deleting the show removes its list.
+  await call('DELETE', `/api/members/${ana}`, {});
+  await call('DELETE', `/api/rentals/${kit}`, {});
+  await call('DELETE', `/api/setlists/${copy}`, {});
+  state = (await call('GET', '/api/state')).body;
+  assert.deepEqual(state.rentals.map((r: { name: string; memberId: string | null }) => [r.name, r.memberId]), [['Amplificador de baixo', null]]);
+  cleanup();
+});
+
 test('a song moves to "ready" once every member says Domino', async () => {
   const { call, cleanup } = setup();
   await call('POST', '/api/login', { password: 'correct horse' });

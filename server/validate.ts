@@ -18,6 +18,7 @@ const LABELS: Record<string, string> = {
   duration: 'duração', tuning: 'afinação', notes: 'anotações', links: 'links', status: 'coluna', index: 'posição',
   date: 'data', time: 'horário', venue: 'local', kind: 'tipo', level: 'avaliação', text: 'texto', label: 'nome do link',
   url: 'endereço', memberId: 'integrante', songId: 'música', at: 'data do ensaio', deezerId: 'faixa', role: 'função', body: 'texto',
+  quantity: 'quantidade', supplier: 'onde alugar', cost: 'valor',
 };
 const label = (key: string) => LABELS[key] ?? key;
 

@@ -114,3 +114,17 @@ export function splitTitleArtist(input: string): { title: string; artist: string
 
 /** plural(3, 'música') → "3 músicas"; irregular forms via `many`. */
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+/** Centavos as "R$ 1.234,50". */
+export const formatMoney = (cents: number) => brl.format(cents / 100);
+
+/** Reads "150", "89,90", "1.500,00" or "R$ 89.90" as centavos; '' is null, anything unreadable undefined. */
+export function parseMoney(input: string): number | null | undefined {
+  let s = input.replace(/R\$|\s/gi, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) return undefined;
+  return Math.round(Number(s) * 100);
+}

@@ -73,6 +73,27 @@ export type Setlist = {
   items: SetlistItem[];
 };
 
+/** Where a rented item stands: still to book, booked, with the band, given back. */
+export const RENTAL_STATUSES = ['needed', 'reserved', 'picked_up', 'returned'] as const;
+export type RentalStatus = (typeof RENTAL_STATUSES)[number];
+/** Gear the band rents for a show (amps, drum kit, PA…). */
+export type Rental = {
+  id: string;
+  setlistId: string;
+  name: string;
+  quantity: number;
+  supplier: string;
+  /** Total for the line, in centavos. */
+  cost: number | null;
+  /** Who books and picks it up. */
+  memberId: string | null;
+  status: RentalStatus;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+};
+export type NewRental = Partial<Omit<Rental, 'id' | 'setlistId' | 'createdAt' | 'updatedAt'>> & { name: string };
+
 export type Activity = {
   id: number;
   memberId: string | null;
@@ -100,5 +121,6 @@ export type BandState = {
   parts: Part[];
   files: SongFile[];
   setlists: Setlist[];
+  rentals: Rental[];
   activity: Activity[];
 };

@@ -56,7 +56,8 @@ test('mcp lists tools with the right annotations', async () => {
   const { tools } = await client.listTools();
   const byName = new Map(tools.map((t) => [t.name, t]));
   for (const name of ['list_songs', 'get_song', 'create_song', 'update_song', 'delete_song', 'list_setlists', 'get_setlist', 'create_setlist',
-    'update_setlist', 'reorder_setlist', 'delete_setlist', 'list_rehearsals', 'get_rehearsal', 'create_rehearsal', 'update_rehearsal', 'delete_rehearsal', 'list_members']) {
+    'update_setlist', 'reorder_setlist', 'delete_setlist', 'list_rehearsals', 'get_rehearsal', 'create_rehearsal', 'update_rehearsal', 'delete_rehearsal', 'list_members',
+    'add_rental', 'update_rental', 'delete_rental']) {
     assert.ok(byName.has(name), `missing ${name}`);
   }
   for (const t of tools) {
@@ -117,6 +118,31 @@ test('mcp setlists: create, reorder, update keeps done flags', async () => {
   assert.equal(renamed.time, null);
   assert.equal(renamed.items.length, 3);
   assert.deepEqual(await call('delete_setlist', { setlistId: show.id }), { deleted: true, setlistId: show.id, name: 'Gig 2' });
+  await cleanup();
+});
+
+test('mcp rentals: add, update, delete, shown on the setlist', async () => {
+  const { call, db, cleanup } = await setup();
+  db.prepare("INSERT INTO members (id, name, instrument, color, created_at) VALUES ('m1', 'Ana', 'Baixo', '#3366ff', 0)").run();
+  const show = await call('create_setlist', { name: 'Gig' });
+  assert.deepEqual(show.rentals, []);
+  assert.equal(show.rentalTotalReais, 0);
+
+  const added = await call('add_rental', { setlistId: show.id, name: 'Amplificador de baixo', costReais: 89.9, responsibleMemberId: 'm1' });
+  assert.equal(added.rentals[0].costReais, 89.9);
+  assert.deepEqual(added.rentals[0].responsible, { memberId: 'm1', name: 'Ana' });
+  await call('add_rental', { setlistId: show.id, name: 'Bateria', quantity: 1, costReais: 200 });
+  const rentalId = added.rentals[0].rentalId;
+
+  const updated = await call('update_rental', { rentalId, status: 'picked_up', responsibleMemberId: null });
+  assert.equal(updated.rentals[0].status, 'picked_up');
+  assert.equal(updated.rentals[0].responsible, null);
+  assert.equal(updated.rentalTotalReais, 289.9);
+  await assert.rejects(call('add_rental', { setlistId: show.id, name: 'X', responsibleMemberId: 'ghost' }), /integrante/);
+  await assert.rejects(call('update_rental', { rentalId: 'nope', status: 'returned' }), /No rental/);
+
+  assert.equal((await call('get_setlist', { setlistId: show.id })).rentals.length, 2);
+  assert.equal((await call('delete_rental', { rentalId })).rentals.length, 1);
   await cleanup();
 });
 

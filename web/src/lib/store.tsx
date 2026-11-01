@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api, clientId, upload } from './api';
 import { useToast } from '../components/Toast';
 import { STAGES } from './stages';
-import type { BandState, Level, Member, Setlist, SetlistItem, Song, Status, TextKind } from './types';
+import type { BandState, Level, Member, NewRental, Rental, Setlist, SetlistItem, Song, Status, TextKind } from './types';
 
 export type NewSong = Partial<Omit<Song, 'cover'>> & { title: string; coverUrl?: string | null; deezerId?: number | null };
 
@@ -35,10 +35,14 @@ type Store = {
   uploadFile: (songId: string, file: Blob, type: string, name: string, onProgress?: (fraction: number) => void) => Promise<void>;
   renameFile: (id: string, name: string) => Promise<void>;
   deleteFile: (id: string) => Promise<void>;
-  addSetlist: (setlist: Partial<Setlist> & { name: string }) => Promise<string>;
+  /** `copyRentalsFrom` brings another show's rental list along (all back to "to book"). */
+  addSetlist: (setlist: Partial<Setlist> & { name: string; copyRentalsFrom?: string }) => Promise<string>;
   updateSetlist: (id: string, patch: Partial<Setlist>) => Promise<void>;
   setItems: (id: string, items: SetlistItem[]) => Promise<void>;
   deleteSetlist: (id: string) => Promise<void>;
+  addRental: (setlistId: string, rental: NewRental) => Promise<string>;
+  updateRental: (id: string, patch: Partial<Rental>) => Promise<void>;
+  deleteRental: (id: string) => Promise<void>;
   addMember: (member: Pick<Member, 'name' | 'instrument' | 'color'>) => Promise<string>;
   updateMember: (id: string, patch: Partial<Member>) => Promise<void>;
   deleteMember: (id: string) => Promise<void>;
@@ -247,7 +251,14 @@ export function BandProvider({ initial, memberId, children }: { initial: BandSta
       updateSetlist: (id, patch) => optimistic(patchSetlist(id, patch), () => api('PATCH', `/api/setlists/${id}`, patch)),
       setItems: (id, items) => optimistic(patchSetlist(id, { items }), () => api('PATCH', `/api/setlists/${id}`, { items })),
       deleteSetlist: (id) =>
-        optimistic((s) => ({ ...s, setlists: s.setlists.filter((l) => l.id !== id) }), () => api('DELETE', `/api/setlists/${id}`)),
+        optimistic(
+          (s) => ({ ...s, setlists: s.setlists.filter((l) => l.id !== id), rentals: s.rentals.filter((r) => r.setlistId !== id) }),
+          () => api('DELETE', `/api/setlists/${id}`),
+        ),
+      addRental: (setlistId, rental) => withRefresh(() => api<{ id: string }>('POST', `/api/setlists/${setlistId}/rentals`, rental).then((r) => r.id)),
+      updateRental: (id, patch) =>
+        optimistic((s) => ({ ...s, rentals: s.rentals.map((r) => (r.id === id ? { ...r, ...patch } : r)) }), () => api('PATCH', `/api/rentals/${id}`, patch)),
+      deleteRental: (id) => optimistic((s) => ({ ...s, rentals: s.rentals.filter((r) => r.id !== id) }), () => api('DELETE', `/api/rentals/${id}`)),
       addMember: (member) => withRefresh(() => api<{ id: string }>('POST', '/api/members', member).then((r) => r.id)),
       updateMember: (id, patch) =>
         optimistic((s) => ({ ...s, members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) }), () =>
@@ -255,7 +266,12 @@ export function BandProvider({ initial, memberId, children }: { initial: BandSta
         ),
       deleteMember: (id) =>
         optimistic(
-          (s) => ({ ...s, members: s.members.filter((m) => m.id !== id), confidence: s.confidence.filter((c) => c.memberId !== id) }),
+          (s) => ({
+            ...s,
+            members: s.members.filter((m) => m.id !== id),
+            confidence: s.confidence.filter((c) => c.memberId !== id),
+            rentals: s.rentals.map((r) => (r.memberId === id ? { ...r, memberId: null } : r)),
+          }),
           () => api('DELETE', `/api/members/${id}`),
         ),
     };

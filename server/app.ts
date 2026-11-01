@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { STATUSES, tx, type Db, type Status } from './db.ts';
+import { RENTAL_STATUSES, STATUSES, tx, type Db, type Status } from './db.ts';
 import * as v from './validate.ts';
 import { bestMatch, coverType, isArtUrl, isCoverFile, type Match, type Music } from './music.ts';
 import { cleanCifra } from './cifra.ts';
@@ -293,6 +293,12 @@ export function createApp(db: Db, config: Config) {
       if (!bySetlist.has(setlistId)) bySetlist.set(setlistId, []);
       bySetlist.get(setlistId)!.push({ ...rest, done: !!rest.done });
     }
+    const rentals = db
+      .prepare(
+        `SELECT id, setlist_id AS setlistId, name, quantity, supplier, cost, member_id AS memberId, status, notes, created_at AS createdAt, updated_at AS updatedAt
+         FROM rentals ORDER BY setlist_id, position`,
+      )
+      .all();
     const activity = (db.prepare('SELECT id, member_id AS memberId, kind, detail, created_at AS createdAt FROM activity ORDER BY id DESC LIMIT 60').all() as { detail: string }[]).map(
       (a) => ({ ...a, detail: JSON.parse(a.detail) }),
     );
@@ -303,6 +309,7 @@ export function createApp(db: Db, config: Config) {
       parts,
       files: songFiles,
       setlists: setlists.map((s) => ({ ...s, items: bySetlist.get(s.id as string) ?? [] })),
+      rentals,
       activity,
     });
   });
@@ -864,6 +871,15 @@ export function createApp(db: Db, config: Config) {
         id, f.kind ?? 'show', f.name!, f.date ?? null, f.time ?? null, f.venue ?? '', f.notes ?? '', now(), now(),
       );
       if (body.items !== undefined) writeItems(id, body.items);
+      // Duplicating a show brings its rental list along, all back to "to book".
+      const copyFrom = v.str(body, 'copyRentalsFrom', 64);
+      if (copyFrom) {
+        const insert = db.prepare(
+          `INSERT INTO rentals (id, setlist_id, position, name, quantity, supplier, cost, member_id, status, notes, created_at, updated_at)
+           SELECT ?, ?, position, name, quantity, supplier, cost, member_id, 'needed', notes, ?, ? FROM rentals WHERE id = ?`,
+        );
+        for (const r of db.prepare('SELECT id FROM rentals WHERE setlist_id = ?').all(copyFrom) as { id: string }[]) insert.run(randomUUID(), id, now(), now(), r.id);
+      }
       log(actor, 'setlist.created', { setlistId: id, name: f.name, kind: f.kind ?? 'show' });
     });
     return id;
@@ -908,9 +924,91 @@ export function createApp(db: Db, config: Config) {
     return c.json({ ok: true });
   });
 
+  // ---- rentals: gear to rent for a show ----
+
+  const MAX_RENTALS = 100;
+
+  /** A member id, or null to clear it; must be a current member. */
+  const memberRef = (body: Record<string, unknown>) => {
+    if (body.memberId === undefined) return undefined;
+    if (body.memberId === null || body.memberId === '') return null;
+    const id = v.str(body, 'memberId', 64)!;
+    if (!db.prepare('SELECT 1 FROM members WHERE id = ?').get(id)) throw new v.BadRequest('Esse integrante não existe mais. Recarregue a página.');
+    return id;
+  };
+
+  const rentalFields = (body: Record<string, unknown>, required: boolean) => ({
+    name: v.str(body, 'name', 120, { required }),
+    quantity: v.int(body, 'quantity', 1, 999),
+    supplier: v.str(body, 'supplier', 120),
+    // Total for the item, in centavos (up to R$ 1 milhão).
+    cost: v.int(body, 'cost', 0, 100_000_000),
+    memberId: memberRef(body),
+    status: v.oneOf(body, 'status', RENTAL_STATUSES),
+    notes: v.text(body, 'notes', 2_000),
+  });
+
+  type RentalRow = {
+    id: string; setlist_id: string; position: number; name: string; quantity: number; supplier: string; cost: number | null;
+    member_id: string | null; status: string; notes: string; created_at: number; updated_at: number;
+  };
+
+  const addRental = (setlistId: string, body: Record<string, unknown>) => {
+    if (!db.prepare('SELECT 1 FROM setlists WHERE id = ?').get(setlistId)) throw new v.NotFound('Esse show não existe mais');
+    const f = rentalFields(body, true);
+    const id = randomUUID();
+    tx(db, () => {
+      const { count, next } = db.prepare('SELECT COUNT(*) AS count, COALESCE(MAX(position) + 1, 0) AS next FROM rentals WHERE setlist_id = ?').get(setlistId) as {
+        count: number;
+        next: number;
+      };
+      if (count >= MAX_RENTALS) throw new v.BadRequest(`Um show aceita até ${MAX_RENTALS} itens para alugar`);
+      db.prepare(
+        `INSERT INTO rentals (id, setlist_id, position, name, quantity, supplier, cost, member_id, status, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id, setlistId, next, f.name!, f.quantity ?? 1, f.supplier ?? '', f.cost ?? null, f.memberId ?? null, f.status ?? 'needed', f.notes ?? '', now(), now());
+    });
+    return id;
+  };
+
+  /** Changes only the fields present in `body`. */
+  const editRental = (id: string, body: Record<string, unknown>) => {
+    const current = db.prepare('SELECT * FROM rentals WHERE id = ?').get(id) as RentalRow | undefined;
+    if (!current) throw new v.NotFound('Esse item não existe mais');
+    const f = rentalFields(body, false);
+    const pick = <T,>(value: T | undefined, fallback: unknown) => (value === undefined ? fallback : value) as string | number | null;
+    db.prepare('UPDATE rentals SET name = ?, quantity = ?, supplier = ?, cost = ?, member_id = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?').run(
+      pick(f.name, current.name), pick(f.quantity ?? undefined, current.quantity), pick(f.supplier, current.supplier), pick(f.cost, current.cost),
+      pick(f.memberId, current.member_id), pick(f.status, current.status), pick(f.notes, current.notes), now(), id,
+    );
+  };
+
+  const removeRental = (id: string) => {
+    if (!db.prepare('DELETE FROM rentals WHERE id = ?').run(id).changes) throw new v.NotFound('Esse item não existe mais');
+  };
+
+  app.post('/api/setlists/:id/rentals', async (c) => {
+    const id = addRental(c.req.param('id'), v.obj(await c.req.json()));
+    broadcast(c);
+    return c.json({ id }, 201);
+  });
+
+  app.patch('/api/rentals/:id', async (c) => {
+    editRental(c.req.param('id'), v.obj(await c.req.json()));
+    broadcast(c);
+    return c.json({ ok: true });
+  });
+
+  app.delete('/api/rentals/:id', (c) => {
+    removeRental(c.req.param('id'));
+    broadcast(c);
+    return c.json({ ok: true });
+  });
+
   if (config.mcpTokenFile) {
     mountMcp(app, config.mcpTokenFile, {
       db, getSong, addSong, editSong, removeSong, placeSong, writeText, markRehearsed, createSetlist, editSetlist, removeSetlist,
+      addRental, editRental, removeRental,
       changed: broadcastAll,
     });
   }
