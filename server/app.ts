@@ -897,6 +897,10 @@ export function createApp(db: Db, config: Config) {
     if (!current) throw new v.NotFound('Esse setlist não existe mais');
     const f = setlistFields(body, false);
     const pick = <T,>(value: T | undefined, key: string) => (value === undefined ? current[key] : value) as string | null;
+    // Rehearsals have no rental list, so a show's rentals would be stranded out of sight.
+    if (f.kind === 'rehearsal' && current.kind === 'show' && db.prepare('SELECT 1 FROM rentals WHERE setlist_id = ? LIMIT 1').get(id)) {
+      throw new v.BadRequest('Remova os itens de aluguel antes de transformar o show em ensaio');
+    }
     tx(db, () => {
       db.prepare('UPDATE setlists SET kind = ?, name = ?, date = ?, time = ?, venue = ?, notes = ?, updated_at = ? WHERE id = ?').run(
         pick(f.kind, 'kind'), pick(f.name, 'name'), pick(f.date, 'date'), pick(f.time, 'time'), pick(f.venue, 'venue'), pick(f.notes, 'notes'), now(), id,

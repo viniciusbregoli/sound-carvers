@@ -119,6 +119,7 @@ test('rentals for a show: add, edit, validate, copy on duplicate, cascade', asyn
   // Rentals belong to shows only, and duplicating as a rehearsal brings none along.
   const rehearsal = (await call('POST', '/api/setlists', { name: 'Ensaio', kind: 'rehearsal', copyRentalsFrom: show })).body.id;
   assert.equal((await call('POST', `/api/setlists/${rehearsal}/rentals`, { name: 'Bateria' })).status, 400);
+  assert.equal((await call('PATCH', `/api/setlists/${show}`, { kind: 'rehearsal' })).status, 400, 'a show with rentals cannot become a rehearsal');
 
   let state = (await call('GET', '/api/state')).body;
   assert.deepEqual(
