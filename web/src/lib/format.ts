@@ -136,7 +136,7 @@ export function songKey(title: string, artist: string): string {
   const norm = (s: string) => {
     let out = s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
     for (let prev = ''; prev !== out; ) [prev, out] = [out, out.replace(note, '')];
-    return out.replace(/['’`]/g, '').replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
+    return out.replace(/['’`\uFE0E\uFE0F]/g, '').replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
   };
   return `${norm(title)}|${norm(artist)}`;
 }
