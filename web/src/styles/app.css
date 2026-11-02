@@ -3483,6 +3483,20 @@ select.select:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--bg-sunken);
 }
+.duplicate-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--fs-small);
+  color: var(--stage-shaky);
+}
+.duplicate-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.duplicate-note .link-btn {
+  color: inherit;
+}
 .match-preview .cover {
   --size: 56px;
 }

@@ -1,22 +1,24 @@
 import { useState, type FormEvent } from 'react';
-import { X } from 'lucide-react';
+import { TriangleAlert, X } from 'lucide-react';
 import { Dialog } from '../components/Dialog';
 import { StageIcon } from '../components/StageIcon';
 import { SongSearch } from '../components/SongSearch';
 import { useBand } from '../lib/store';
 import { STAGES } from '../lib/stages';
 import { artUrl } from '../lib/api';
-import { formatDuration } from '../lib/format';
+import { formatDuration, songKey } from '../lib/format';
 import { STATUSES, type Match, type Status } from '../lib/types';
 
 export function NewSongDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
-  const { addSong } = useBand();
+  const { addSong, state } = useBand();
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [original, setOriginal] = useState(false);
   const [status, setStatus] = useState<Status>('todo');
   const [match, setMatch] = useState<Match | null>(null);
   const [busy, setBusy] = useState(false);
+  const typed = songKey(title, original ? '' : artist);
+  const twin = title.trim() ? state.songs.find((s) => songKey(s.title, s.artist) === typed) : undefined;
 
   const close = () => {
     setTitle('');
@@ -36,7 +38,7 @@ export function NewSongDialog({ open, onClose, onCreated }: { open: boolean; onC
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || twin) return;
     setBusy(true);
     try {
       // The match only applies while the title still says what was picked.
@@ -88,6 +90,24 @@ export function NewSongDialog({ open, onClose, onCreated }: { open: boolean; onC
             </button>
           </div>
         )}
+        {twin && (
+          <p className="duplicate-note" role="status">
+            <TriangleAlert size={16} aria-hidden />
+            <span>
+              “{twin.title}” já está no repertório.{' '}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  close();
+                  onCreated(twin.id);
+                }}
+              >
+                Abrir música
+              </button>
+            </span>
+          </p>
+        )}
         <label className="checkbox">
           <input
             type="checkbox"
@@ -123,7 +143,7 @@ export function NewSongDialog({ open, onClose, onCreated }: { open: boolean; onC
           <button type="button" className="btn btn-ghost" onClick={close}>
             Cancelar
           </button>
-          <button className="btn btn-primary" disabled={busy || !title.trim()}>
+          <button className="btn btn-primary" disabled={busy || !title.trim() || !!twin}>
             {busy ? 'Adicionando…' : 'Adicionar música'}
           </button>
         </div>

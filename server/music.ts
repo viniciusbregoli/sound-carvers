@@ -257,6 +257,9 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+/** Equal for the same song typed differently: case, accents, punctuation and "(Remaster)"-style suffixes don't count. */
+export const songKey = (title: string, artist: string) => `${norm(title)}|${norm(artist)}`;
+
 /** The search result that is plausibly the same song, preferring studio versions over live ones. */
 export function bestMatch(matches: Match[], title: string, artist: string): Match | null {
   const candidates = matches.filter((m) => m.cover && sameSong(m.title, m.artist, title, artist));

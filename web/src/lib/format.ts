@@ -128,3 +128,16 @@ export function parseMoney(input: string): number | null | undefined {
   if (!/^\d+(\.\d{1,2})?$/.test(s)) return undefined;
   return Math.round(Number(s) * 100);
 }
+
+/** Equal for the same song typed differently: case, accents, punctuation and "(Remaster)"-style suffixes don't count. */
+export function songKey(title: string, artist: string): string {
+  const norm = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\(.*?\)|\[.*?\]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  return `${norm(title)}|${norm(artist)}`;
+}

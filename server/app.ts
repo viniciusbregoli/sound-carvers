@@ -4,7 +4,7 @@ import { streamSSE } from 'hono/streaming';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { RENTAL_STATUSES, STATUSES, tx, type Db, type Status } from './db.ts';
 import * as v from './validate.ts';
-import { bestMatch, coverType, isArtUrl, isCoverFile, type Match, type Music } from './music.ts';
+import { bestMatch, coverType, isArtUrl, isCoverFile, songKey, type Match, type Music } from './music.ts';
 import { cleanCifra } from './cifra.ts';
 import { EmptyUpload, MAX_BYTES, NotMedia, TooLarge, uploadType, type FileKind, type Files } from './files.ts';
 import { mountMcp } from './mcp.ts';
@@ -379,10 +379,15 @@ export function createApp(db: Db, config: Config) {
     }
   };
 
-  /** Adds a song at the end of its column; covers are then looked up online in the background. */
+  /** Adds a song at the end of its column; covers are then looked up online in the background. Refuses a song the band already has. */
   const addSong = async (body: Record<string, unknown>, actor: string | null) => {
     const f = songFields(body, true);
     const status = v.oneOf(body, 'status', STATUSES) ?? 'todo';
+    const key = songKey(f.title!, f.artist ?? '');
+    const twin = (db.prepare('SELECT title, artist FROM songs').all() as { title: string; artist: string }[]).find(
+      (s) => songKey(s.title, s.artist) === key,
+    );
+    if (twin) throw new v.HttpError(`“${twin.title}” já está no repertório.`, 409);
     const id = randomUUID();
     const cover = await storeCover(f.coverUrl);
     tx(db, () => {

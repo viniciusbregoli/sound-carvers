@@ -97,6 +97,18 @@ test('board flow: add, move, confidence, setlist', async () => {
   cleanup();
 });
 
+test('refuses a song the band already has', async () => {
+  const { call, cleanup } = setup();
+  await call('POST', '/api/login', { password: 'correct horse' });
+  assert.equal((await call('POST', '/api/songs', { title: "Livin' On A Prayer", artist: 'Bon Jovi' })).status, 201);
+  const twin = await call('POST', '/api/songs', { title: 'livin on a prayer (2003 Remaster)', artist: 'Bon  Jovi' });
+  assert.equal(twin.status, 409);
+  assert.match(twin.body.error, /já está no repertório/);
+  assert.equal((await call('POST', '/api/songs', { title: "Livin' On A Prayer", artist: 'Someone Else' })).status, 201);
+  assert.equal((await call('GET', '/api/state')).body.songs.length, 2);
+  cleanup();
+});
+
 test('rentals for a show: add, edit, validate, copy on duplicate, cascade', async () => {
   const { call, cleanup } = setup();
   await call('POST', '/api/login', { password: 'correct horse' });
