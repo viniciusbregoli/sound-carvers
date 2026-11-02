@@ -128,3 +128,17 @@ export function parseMoney(input: string): number | null | undefined {
   if (!/^\d+(\.\d{1,2})?$/.test(s)) return undefined;
   return Math.round(Number(s) * 100);
 }
+
+/** Equal for the same song typed differently: case, accents, punctuation and recording notes like "(2003 Remaster)" don't count. */
+export function songKey(title: string, artist: string): string {
+  const words = 'remaster(?:ed)?|live|ao vivo|acustic[oa]|acoustic|versao|version|edit|mono|stereo|demo|deluxe|bonus|feat|ft';
+  const note = new RegExp(`\\s*(?:[(\\[][^)\\]]*\\b(?:${words})\\b[^)\\]]*[)\\]]|\\s-\\s[^-]*\\b(?:${words})\\b[^-]*)$`);
+  const norm = (s: string) => {
+    let out = s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    for (let prev = ''; prev !== out; ) [prev, out] = [out, out.replace(note, '')];
+    const bare = out.replace(/['’`\uFE0E\uFE0F]/g, '');
+    // Emoji-only titles (Coldplay's "❤️", "✨") would otherwise all come out empty.
+    return bare.replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim() || bare.replace(/[\s\p{P}]+/gu, '');
+  };
+  return `${norm(title)}|${norm(artist)}`;
+}

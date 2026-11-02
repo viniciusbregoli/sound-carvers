@@ -97,6 +97,32 @@ test('board flow: add, move, confidence, setlist', async () => {
   cleanup();
 });
 
+test('refuses a song the band already has', async () => {
+  const { call, cleanup } = setup();
+  await call('POST', '/api/login', { password: 'correct horse' });
+  assert.equal((await call('POST', '/api/songs', { title: "Livin' On A Prayer", artist: 'Bon Jovi' })).status, 201);
+  const twin = await call('POST', '/api/songs', { title: 'livin on a prayer (2003 Remaster)', artist: 'Bon  Jovi' });
+  assert.equal(twin.status, 409);
+  assert.match(twin.body.error, /já está no repertório/);
+  assert.equal((await call('POST', '/api/songs', { title: 'Livin On A Prayer - Remastered 2011', artist: 'Bon Jovi' })).status, 409);
+  assert.equal((await call('POST', '/api/songs', { title: "Livin' On A Prayer", artist: 'Someone Else' })).status, 201);
+  // Meaningful brackets and non-Latin titles stay distinct.
+  assert.equal((await call('POST', '/api/songs', { title: 'Intro (Part 1)', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'Intro (Part 2)', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'さくら', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'ありがとう', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'か', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'が', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'Love ❤️', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'Love ❤', artist: 'X' })).status, 409);
+  assert.equal((await call('POST', '/api/songs', { title: '✨', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: '❤️', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: '❤', artist: 'X' })).status, 409);
+  assert.equal((await call('POST', '/api/songs', { title: '✨!', artist: 'X' })).status, 409);
+  assert.equal((await call('GET', '/api/state')).body.songs.length, 11);
+  cleanup();
+});
+
 test('rentals for a show: add, edit, validate, copy on duplicate, cascade', async () => {
   const { call, cleanup } = setup();
   await call('POST', '/api/login', { password: 'correct horse' });
