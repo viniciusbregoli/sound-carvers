@@ -138,7 +138,7 @@ export function songKey(title: string, artist: string): string {
     for (let prev = ''; prev !== out; ) [prev, out] = [out, out.replace(note, '')];
     const bare = out.replace(/['’`\uFE0E\uFE0F]/g, '');
     // Emoji-only titles (Coldplay's "❤️", "✨") would otherwise all come out empty.
-    return bare.replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim() || bare.replace(/\s+/g, '');
+    return bare.replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim() || bare.replace(/[\s\p{P}]+/gu, '');
   };
   return `${norm(title)}|${norm(artist)}`;
 }
