@@ -115,7 +115,10 @@ test('refuses a song the band already has', async () => {
   assert.equal((await call('POST', '/api/songs', { title: 'が', artist: 'X' })).status, 201);
   assert.equal((await call('POST', '/api/songs', { title: 'Love ❤️', artist: 'X' })).status, 201);
   assert.equal((await call('POST', '/api/songs', { title: 'Love ❤', artist: 'X' })).status, 409);
-  assert.equal((await call('GET', '/api/state')).body.songs.length, 9);
+  assert.equal((await call('POST', '/api/songs', { title: '✨', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: '❤️', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: '❤', artist: 'X' })).status, 409);
+  assert.equal((await call('GET', '/api/state')).body.songs.length, 11);
   cleanup();
 });
 
