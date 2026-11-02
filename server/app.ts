@@ -384,13 +384,15 @@ export function createApp(db: Db, config: Config) {
     const f = songFields(body, true);
     const status = v.oneOf(body, 'status', STATUSES) ?? 'todo';
     const key = songKey(f.title!, f.artist ?? '');
-    const twin = (db.prepare('SELECT title, artist FROM songs').all() as { title: string; artist: string }[]).find(
-      (s) => songKey(s.title, s.artist) === key,
-    );
-    if (twin) throw new v.HttpError(`“${twin.title}” já está no repertório.`, 409);
     const id = randomUUID();
     const cover = await storeCover(f.coverUrl);
+    // Checked inside the insert's transaction, after the download, so two people adding at once can't both get in.
+    let twin: { title: string } | undefined;
     tx(db, () => {
+      twin = (db.prepare('SELECT title, artist FROM songs').all() as { title: string; artist: string }[]).find(
+        (s) => songKey(s.title, s.artist) === key,
+      );
+      if (twin) return;
       const { next } = db.prepare('SELECT COALESCE(MAX(position) + 1, 0) AS next FROM songs WHERE status = ?').get(status) as { next: number };
       db.prepare(
         `INSERT INTO songs (id, title, artist, original, status, position, song_key, bpm, duration, tuning, notes, links, cover, created_by, created_at, updated_at)
@@ -401,6 +403,10 @@ export function createApp(db: Db, config: Config) {
       );
       log(actor, 'song.added', { songId: id, title: f.title, status });
     });
+    if (twin) {
+      music.removeCover(cover);
+      throw new v.HttpError(`“${twin.title}” já está no repertório.`, 409);
+    }
     // Fill in key, tuning and links after responding, so the card appears instantly; everyone refreshes when done.
     if (!f.original && config.enrichOnAdd !== false) {
       const picked = f.deezerId ? { deezerId: f.deezerId, title: f.title!, artist: f.artist ?? '', cover: null, duration: f.duration ?? null } : undefined;

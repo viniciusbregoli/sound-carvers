@@ -104,8 +104,14 @@ test('refuses a song the band already has', async () => {
   const twin = await call('POST', '/api/songs', { title: 'livin on a prayer (2003 Remaster)', artist: 'Bon  Jovi' });
   assert.equal(twin.status, 409);
   assert.match(twin.body.error, /já está no repertório/);
+  assert.equal((await call('POST', '/api/songs', { title: 'Livin On A Prayer - Remastered 2011', artist: 'Bon Jovi' })).status, 409);
   assert.equal((await call('POST', '/api/songs', { title: "Livin' On A Prayer", artist: 'Someone Else' })).status, 201);
-  assert.equal((await call('GET', '/api/state')).body.songs.length, 2);
+  // Meaningful brackets and non-Latin titles stay distinct.
+  assert.equal((await call('POST', '/api/songs', { title: 'Intro (Part 1)', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'Intro (Part 2)', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'さくら', artist: 'X' })).status, 201);
+  assert.equal((await call('POST', '/api/songs', { title: 'ありがとう', artist: 'X' })).status, 201);
+  assert.equal((await call('GET', '/api/state')).body.songs.length, 6);
   cleanup();
 });
 

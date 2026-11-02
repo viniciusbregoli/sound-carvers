@@ -129,15 +129,14 @@ export function parseMoney(input: string): number | null | undefined {
   return Math.round(Number(s) * 100);
 }
 
-/** Equal for the same song typed differently: case, accents, punctuation and "(Remaster)"-style suffixes don't count. */
+/** Equal for the same song typed differently: case, accents, punctuation and recording notes like "(2003 Remaster)" don't count. */
 export function songKey(title: string, artist: string): string {
-  const norm = (s: string) =>
-    s
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/\(.*?\)|\[.*?\]/g, '')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim();
+  const words = 'remaster(?:ed)?|live|ao vivo|acustic[oa]|acoustic|versao|version|edit|mono|stereo|demo|deluxe|bonus|feat|ft';
+  const note = new RegExp(`\\s*(?:[(\\[][^)\\]]*\\b(?:${words})\\b[^)\\]]*[)\\]]|\\s-\\s[^-]*\\b(?:${words})\\b[^-]*)$`);
+  const norm = (s: string) => {
+    let out = s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    for (let prev = ''; prev !== out; ) [prev, out] = [out, out.replace(note, '')];
+    return out.replace(/['’`]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  };
   return `${norm(title)}|${norm(artist)}`;
 }
